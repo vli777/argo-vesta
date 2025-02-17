@@ -43,6 +43,12 @@ def adaptive_risk_constraints(
             risk_free_rate_log_daily,
         )
 
+    def portfolio_cumulative_return(w, returns, T):
+        # Here, we assume returns is a DataFrame of daily log returns.
+        # The expected daily return is given by the weighted average.
+        daily_return = np.sum(w * returns)  # Or compute from returns
+        return T * daily_return
+
     def objective(trial):
         """
         Optuna objective function for tuning constraint relaxations.
@@ -50,7 +56,7 @@ def adaptive_risk_constraints(
         """
 
         # Suggest relaxation factor in steps of 0.1
-        relax_factor = trial.suggest_float("relax_factor", 0.8, 1.3, step=0.1)
+        relax_factor = trial.suggest_float("relax_factor", 1.0, 1.5, step=0.1)
 
         # Adjust constraints based on priority
         vol_limit_adj, cvar_limit_adj = adjust_constraints(
@@ -71,6 +77,7 @@ def adaptive_risk_constraints(
                 target_sum=1.0,
                 vol_limit=vol_limit_adj,
                 cvar_limit=cvar_limit_adj,
+                min_return=risk_estimates["mu"].mean() * (vol_limit_adj / max_vol),
                 alpha=0.05,
                 solver_method="SLSQP",
                 initial_guess=initial_weights,
@@ -88,9 +95,28 @@ def adaptive_risk_constraints(
                 0, port_vol - max_vol
             )  # Positive if it exceeds allowed volatility
             cvar_loss = max(
-                0, computed_cvar - max_cvar
+                0, max_cvar - computed_cvar
             )  # Positive if it exceeds allowed CVaR
-            loss = vol_loss**2 + cvar_loss**2  # Sum of squared violations
+
+            # Compute cumulative return penalty:
+            trading_days_per_year = 252
+            k = 0.5  # sensitivity parameter
+
+            port_cumulative_return = portfolio_cumulative_return(
+                final_w, risk_estimates["returns"], T=trading_days_per_year
+            )
+            # If portfolio cumulative return is below the adjusted target, penalize.
+            cumulative_target = (
+                trading_days_per_year * target
+            )  # Expected cumulative log return without adjustment
+            # Adjust the cumulative target based on the relaxation factor:
+            adjusted_cumulative_target = cumulative_target * (
+                1 - k * (relax_factor - 1)
+            )
+            return_penalty = max(0, adjusted_cumulative_target - port_cumulative_return)
+
+            # Combine the penalties: adjust weights as needed.
+            loss = 5 * vol_loss + 20 * cvar_loss + 10 * return_penalty
 
             return loss
 
@@ -122,6 +148,7 @@ def adaptive_risk_constraints(
             target_sum=1.0,
             vol_limit=final_vol_limit,
             cvar_limit=final_cvar_limit,
+            min_return=risk_estimates["mu"].mean() * (final_vol_limit / max_vol),
             alpha=0.05,
             solver_method="SLSQP",
             initial_guess=initial_weights,
