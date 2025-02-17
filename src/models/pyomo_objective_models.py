@@ -12,6 +12,7 @@ def build_sharpe_model(
     allow_short: bool = False,
     vol_limit: float = None,  # Optional volatility constraint
     cvar_limit: float = None,  # Optional CVaR constraint (upper bound on CVaR)
+    min_return: float = None,  # Optional min returns
     alpha: float = 0.05,  # Tail probability for CVaR (e.g., 5%)
     returns: pd.DataFrame = None,  # Historical returns (scenarios) needed if using CVaR
 ):
@@ -36,6 +37,7 @@ def build_sharpe_model(
         allow_short (bool): Allow short selling.
         vol_limit (float): Optional volatility constraint.
         cvar_limit (float): Optional CVaR limit.
+        min_return (float): Optional minimum return.
         alpha (float): Tail probability for CVaR (default 5%).
         returns (pd.DataFrame): Historical returns (scenarios), required if `cvar_limit` is set.
 
@@ -53,18 +55,41 @@ def build_sharpe_model(
 
     model.w = pyo.Var(model.assets, domain=pyo.Reals, bounds=weight_bounds)
 
-    # Constraint: Weights Sum to Target
+    # Constraint: Net Exposure - Weights Sum to Target
     model.weight_sum = pyo.Constraint(
         expr=sum(model.w[i] for i in model.assets) == target_sum
     )
 
-    # Portfolio Return (using expected returns)
-    # Note: If mu is a NumPy array, use mu[i] instead of mu.iloc[i]
+    # Constraint: Gross Exposure if allowing short positions
+    if allow_short:
+        model.z = pyo.Var(model.assets, domain=pyo.NonNegativeReals)
+
+        # Enforce z_i >= |w_i|
+        def abs_constraint_rule(model, i):
+            return model.z[i] >= model.w[i]
+
+        model.abs_constraint_pos = pyo.Constraint(
+            model.assets, rule=abs_constraint_rule
+        )
+
+        def abs_constraint_rule_neg(model, i):
+            return model.z[i] >= -model.w[i]
+
+        model.abs_constraint_neg = pyo.Constraint(
+            model.assets, rule=abs_constraint_rule_neg
+        )
+        # Now, enforce gross exposure constraint (e.g., 1.3)
+        gross_target = 1.3
+        model.gross_exposure = pyo.Constraint(
+            expr=sum(model.z[i] for i in model.assets) <= gross_target
+        )
+
+    # Portfolio Return Expression (using expected returns)
     model.port_return = pyo.Expression(
         expr=sum(model.w[i] * mu.iloc[i] for i in model.assets)
     )
 
-    # Portfolio Variance
+    # Portfolio Variance Expression
     model.port_variance = pyo.Expression(
         expr=sum(
             model.w[i] * cov.iloc[i, j] * model.w[j]
@@ -73,13 +98,21 @@ def build_sharpe_model(
         )
     )
 
-    # Portfolio Volatility
+    # Portfolio Volatility Expression
     model.port_vol = pyo.Expression(expr=pyo.sqrt(model.port_variance + 1e-8))
 
     # Objective: Maximize Sharpe Ratio (minimizing negative Sharpe ratio)
     model.obj = pyo.Objective(
         expr=-model.port_return / model.port_vol, sense=pyo.minimize
     )
+
+    # Optional Returns Constraint, assuming mu is a pd.Series:
+    if min_return is not None:
+        mu_array = mu.to_numpy()
+        model.min_return = pyo.Constraint(
+            expr=sum(model.w[i] * mu_array[i] for i in model.assets)
+            >= float(min_return)
+        )
 
     # Optional Volatility Constraint
     if vol_limit is not None:
@@ -89,13 +122,10 @@ def build_sharpe_model(
     if cvar_limit is not None and returns is not None:
         T = returns.shape[0]
         model.obs = pyo.Set(initialize=range(T))
-
-        # Auxiliary Variables for CVaR computation
         # q[j] are slack variables (excess loss over z) and must be nonnegative
         model.q = pyo.Var(model.obs, domain=pyo.NonNegativeReals)
         # z represents the VaR (can be any real number)
         model.z = pyo.Var(domain=pyo.Reals)
-
         # For each scenario j, ensure:
         #    q[j] >= (- sum_i w[i]*returns.iloc[j, i]) - z
         # where - sum_i w[i]*returns.iloc[j, i] is the loss in scenario j.
@@ -105,8 +135,6 @@ def build_sharpe_model(
                 model.q[j]
                 >= -sum(model.w[i] * returns.iloc[j, i] for i in model.assets) - model.z
             )
-
-        # Define the CVaR (Expected Shortfall) and enforce the limit:
         #    CVaR = z + (1/(alpha * T)) * sum_j q[j] <= cvar_limit
         model.cvar_constraint = pyo.Constraint(
             expr=model.z + (1 / (alpha * T)) * sum(model.q[j] for j in model.obs)
@@ -161,9 +189,9 @@ def build_omega_model(
     model.q = pyo.Var(model.obs, domain=pyo.NonNegativeReals)
 
     # Expected Return Constraint: y^T mu_robust >= target * z.
-    model.exp_return_constraint = pyo.Constraint(
-        expr=sum(model.y[i] * mu_robust[i] for i in model.assets) >= target * model.z
-    )
+    # model.exp_return_constraint = pyo.Constraint(
+    #     expr=sum(model.y[i] * mu_robust[i] for i in model.assets) >= target * model.z
+    # )
 
     # Scaling constraint: sum(y) == z.
     model.scaling_constraint = pyo.Constraint(
