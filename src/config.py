@@ -89,7 +89,8 @@ class Config:
             use_decorrelation=config_dict.get("use_decorrelation", False),
             use_reversion=use_reversion,
             reversion_type=reversion_type,  # Defaults to "ou" if enabled, else None
-            optimization_objective = config_dict.get("optimization_objective") or "sharpe",
+            optimization_objective=config_dict.get("optimization_objective")
+            or "sharpe",
             test_mode=config_dict.get("test_mode", False),
             test_data_visible_pct=config_dict.get("test_data_visible_pct", 0.1),
         )
