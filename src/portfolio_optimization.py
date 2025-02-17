@@ -8,6 +8,7 @@ from sklearn.covariance import LedoitWolf
 from result_output import output_results
 from config import Config
 from models.nco import nested_clustered_optimization
+from models.optimize_portfolio import estimated_portfolio_volatility
 from utils import logger
 from utils.caching_utils import (
     load_model_results_from_cache,
@@ -30,7 +31,7 @@ OPTIMIZATION_DISPATCH: Dict[str, Callable[..., Any]] = {
 
 def run_optimization(
     model: str, cov: pd.DataFrame, mu: pd.Series, args: Dict[str, Any]
-) -> Any:
+) -> pd.Series:
     """
     Dispatch to the appropriate optimization function based on `model` and provided arguments.
     Returns weights or optimization results.
@@ -123,18 +124,23 @@ def run_optimization_and_save(
                 mu=mu_annual,
                 args=model_args,
             )
-
+            # Convert weights from Pandas Series to NumPy array
+            weights_array = weights.to_numpy().reshape(-1, 1)  # Ensure it's a column vector
+            # Ensure weights align with cov_annual's tickers
+            weights = weights.reindex(cov_annual.index, fill_value=0)
+            # Convert to NumPy and compute portfolio volatility
+            weights_array = weights.to_numpy()
+            current_vol: float = estimated_portfolio_volatility(weights_array, cov_annual.to_numpy())
             portfolio_max_size = estimate_optimal_num_assets(
-                vol_limit=config.portfolio_max_vol,
+                vol_limit=config.portfolio_max_vol if config.portfolio_max_vol else current_vol,
                 portfolio_max_size=config.portfolio_max_size,
-            ) or len(valid_assets)
+            ) or len(weights)
 
             weights = convert_weights_to_series(weights, index=mu_annual.index)
             normalized_weights = normalize_weights(weights, config.min_weight)
             final_weights = limit_portfolio_size(
                 normalized_weights, portfolio_max_size, target_sum=1.0
             )
-
             # 3) Save new result to cache
             save_model_results_to_cache(cache_key, final_weights.to_dict())
 
