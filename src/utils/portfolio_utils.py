@@ -350,11 +350,11 @@ def estimate_optimal_num_assets(
         int: The optimal number of assets to include in the portfolio.
     """
     if vol_limit is None or vol_limit <= 0:
-        # logger.warning("Volatility limit not set or invalid. Using default max size.")
+        logger.warning("Volatility limit not set or invalid. Using default max size.")
         return portfolio_max_size  # Fallback to user-defined max size
 
     # Compute optimal number of assets
-    optimal_n = round((vol_limit * 100) ** 2)
+    optimal_n = round((round(vol_limit, 2) * 100) ** 2)
 
     # Apply constraints: Ensure it does not exceed max size and is at least 1
     optimal_n = max(optimal_n, 1)  # Ensure at least 1 asset
@@ -363,8 +363,8 @@ def estimate_optimal_num_assets(
             optimal_n, portfolio_max_size
         )  # Apply upper limit only if defined
 
-    # logger.info(
-    #     f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
-    # )
+    logger.info(
+        f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
+    )
 
     return optimal_n
