@@ -34,7 +34,7 @@ def iterative_pipeline_runner(
         config.portfolio_max_size = estimate_optimal_num_assets(
             vol_limit=config.portfolio_max_vol,
             portfolio_max_size=config.portfolio_max_size,
-        ) or (len(initial_symbols) if initial_symbols is not None else 30)
+        ) 
 
     # initial_symbols and run_local are handled separately as they may not be part of config
     symbols = initial_symbols
@@ -78,7 +78,7 @@ def iterative_pipeline_runner(
             )
             break
 
-        if len(valid_symbols) <= config.portfolio_max_size:
+        if not config.portfolio_max_size or len(valid_symbols) <= config.portfolio_max_size:
             print(
                 f"Stopping epochs as the number of portfolio holdings ({len(valid_symbols)}) is <= the configured portfolio max size of {config.portfolio_max_size}."
             )
