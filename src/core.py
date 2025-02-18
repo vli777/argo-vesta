@@ -489,7 +489,9 @@ def run_pipeline(
     combined_models = ", ".join(sorted(set(valid_models)))
     combined_input_files = ", ".join(config.input_files)
 
-    if not (final_weights.equals(normalized_avg_weights)):
+    # Convert dict to Pandas Series
+    final_weights_series = pd.Series(final_weights)
+    if not (final_weights_series.equals(normalized_avg_weights)):
         if config.portfolio_max_vol is not None:
             combined_models += f" + σ {config.portfolio_max_vol:.2f}"
         if config.portfolio_max_cvar is not None:
