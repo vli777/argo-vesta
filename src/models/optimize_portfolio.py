@@ -115,7 +115,6 @@ def optimize_weights_objective(
 
     # Add gross exposure for long/short
     if allow_short:
-        print('inside optimize', allow_short)
         constraints.append({"type": "ineq", "fun": gross_exposure})
 
     # We'll assign the selected objective function to chosen_obj.
