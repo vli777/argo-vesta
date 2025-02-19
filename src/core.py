@@ -66,7 +66,7 @@ def run_pipeline(
             Path(config.input_files_dir) / file for file in config.input_files
         ]
         symbols = process_input_files(watchlist_paths)
-        logger.info(f"Loaded symbols from watchlists: {symbols}")
+        # logger.info(f"Loaded symbols from watchlists: {symbols}")
         return symbols
 
     def load_data(
@@ -304,7 +304,7 @@ def run_pipeline(
         logger.warning("No valid symbols remain after filtering. Aborting pipeline.")
         return None  # Or raise an exception if this is an unrecoverable state
 
-    logger.info(f"Symbols selected for optimization: {valid_symbols}")
+    logger.debug(f"Symbols selected for optimization {valid_symbols}")
 
     try:
         if valid_symbols:
@@ -320,7 +320,7 @@ def run_pipeline(
     #####################################
     ##########  OPTIMIZATION  ###########
     #####################################
-    # Iterate through each time period and perform optimization    
+    # Iterate through each time period and perform optimization
     for period in sorted_time_periods:
         if period != longest_period:
             config.plot_anomalies = False

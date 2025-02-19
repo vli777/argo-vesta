@@ -136,8 +136,7 @@ def optimize_weights_objective(
                 "Both historical returns and expected returns (mu) must be provided for Sharpe optimization."
             )
         if n < 50:
-            logger.info("Optimizing for max Sharpe...")
-
+            # logger.info("Optimizing for max Sharpe...")
             def obj(w: np.ndarray) -> float:
                 port_return = w @ mu
                 port_vol = estimated_portfolio_volatility(w, cov)
@@ -145,7 +144,7 @@ def optimize_weights_objective(
 
             chosen_obj = obj
         else:
-            logger.info("Optimizing for max Sharpe with pyomo...")
+            # logger.info("Optimizing for max Sharpe with pyomo...")
             model_pyomo = build_sharpe_model(
                 cov=cov,
                 mu=mu,
