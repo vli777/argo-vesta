@@ -34,7 +34,7 @@ def adaptive_risk_constraints(
         if config.portfolio_max_cvar is not None
         else None
     )
-    max_weight: float = float(config.max_weight)
+    max_weight = float(config.max_weight) if config.max_weight is not None else 1.0
     allow_short: bool = config.allow_short
     risk_priority: str = config.portfolio_risk_priority
     optimization_objective: str = config.optimization_objective

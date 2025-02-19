@@ -152,25 +152,48 @@ def build_omega_model(
     max_weight: float,
     allow_short: bool,
     vol_limit: float = None,  # Optional volatility constraint
-    cvar_limit: float = None,  # Optional CVaR constraint
-    alpha: float = 0.05,  # Default CVaR threshold
+    cvar_limit: float = None,  # Optional CVaR constraint (upper bound on CVaR)
+    alpha: float = 0.05,  # Tail probability for CVaR (default 5%)
 ):
     """
     Build a Pyomo model for the Omega ratio using the linear-fractional formulation.
 
     The formulation uses additional variables y, z, and q:
-
        max_{y,q,z}  y^T E(r) - target * z
        s.t.
          y^T E(r) >= target * z,
          sum(y) = z,
          sum(q) = 1,
-         q[j] >= target * z - y^T r_j  for each observation j,
+         q[j] >= target*z - sum_i (y[i]*r[j,i])  for each observation j,
          (if no shorting) y >= 0,
          y <= max_weight * z,
          z >= 0.
 
-    After solving, the portfolio weights are recovered as w = y / z.
+    After solving, portfolio weights are recovered as w = y / z.
+
+    Optional risk constraints:
+      - If vol_limit is provided, enforce that the portfolio volatility (computed from w)
+        does not exceed vol_limit.
+      - If cvar_limit is provided, enforce that the computed CVaR (in the homogeneous space)
+        is less than or equal to cvar_limit.
+
+    Additionally, if allow_short is True, a gross exposure constraint is added:
+      sum(|y[i]|) <= gross_target * z, which ensures that the gross exposure of w = y/z
+      is controlled (e.g. gross_target=1.3).
+
+    Args:
+        cov (pd.DataFrame): Covariance matrix.
+        returns (pd.DataFrame): Historical returns (T x n).
+        target (float): Target return (for the Omega formulation).
+        target_sum (float): Sum of portfolio weights (usually 1).
+        max_weight (float): Maximum weight per asset.
+        allow_short (bool): Allow short selling.
+        vol_limit (float): Optional volatility constraint.
+        cvar_limit (float): Optional CVaR constraint.
+        alpha (float): Tail probability for CVaR.
+
+    Returns:
+        Pyomo optimization model.
     """
     model = pyo.ConcreteModel()
     T, n = returns.shape
@@ -179,26 +202,55 @@ def build_omega_model(
     model.assets = pyo.Set(initialize=assets)
     model.obs = pyo.Set(initialize=obs)
 
-    # For a robust estimate of expected returns, here we simply use the sample mean.
-    # (You could substitute a trimmed mean if desired.)
+    # Use sample mean of returns as robust expected returns.
     mu_robust = returns.mean(axis=0).values
 
     # Decision variables:
-    model.y = pyo.Var(model.assets, domain=pyo.Reals)
+    model.y = pyo.Var(
+        model.assets, domain=pyo.Reals
+    )  # homogeneous representation variable
     model.z = pyo.Var(domain=pyo.NonNegativeReals)
     model.q = pyo.Var(model.obs, domain=pyo.NonNegativeReals)
-
-    # Expected Return Constraint: y^T mu_robust >= target * z.
-    # model.exp_return_constraint = pyo.Constraint(
-    #     expr=sum(model.y[i] * mu_robust[i] for i in model.assets) >= target * model.z
-    # )
 
     # Scaling constraint: sum(y) == z.
     model.scaling_constraint = pyo.Constraint(
         expr=sum(model.y[i] for i in model.assets) == model.z
     )
 
-    # **Portfolio Variance**
+    # Optional: if shorting is not allowed, force y >= 0.
+    if not allow_short:
+
+        def nonnegative_rule(model, i):
+            return model.y[i] >= 0
+
+        model.nonnegative = pyo.Constraint(model.assets, rule=nonnegative_rule)
+    else:
+        # If shorting is allowed, we add a gross exposure constraint on y.
+        # Introduce auxiliary variable for |y[i]|
+        model.gross_y = pyo.Var(model.assets, domain=pyo.NonNegativeReals)
+
+        def abs_constraint_pos(model, i):
+            return model.gross_y[i] >= model.y[i]
+
+        model.abs_constraint_pos = pyo.Constraint(model.assets, rule=abs_constraint_pos)
+
+        def abs_constraint_neg(model, i):
+            return model.gross_y[i] >= -model.y[i]
+
+        model.abs_constraint_neg = pyo.Constraint(model.assets, rule=abs_constraint_neg)
+        # Enforce gross exposure: sum(|y[i]|) <= gross_target * z.
+        gross_target = 1.3  # adjust as desired
+        model.gross_exposure = pyo.Constraint(
+            expr=sum(model.gross_y[i] for i in model.assets) <= gross_target * model.z
+        )
+
+    # Upper bound constraint: y[i] <= max_weight * z.
+    def upper_bound_rule(model, i):
+        return model.y[i] <= max_weight * model.z
+
+    model.upper_bound = pyo.Constraint(model.assets, rule=upper_bound_rule)
+
+    # Define portfolio variance and volatility (w = y/z).
     model.port_variance = pyo.Expression(
         expr=sum(
             (model.y[i] / model.z) * cov.iloc[i, j] * (model.y[j] / model.z)
@@ -206,15 +258,12 @@ def build_omega_model(
             for j in model.assets
         )
     )
-
-    # **Portfolio Volatility**
     model.port_vol = pyo.Expression(expr=pyo.sqrt(model.port_variance + 1e-8))
 
     # Normalize tail loss auxiliary variables: sum(q) == 1.
     model.q_norm = pyo.Constraint(expr=sum(model.q[j] for j in model.obs) == 1)
 
-    # Omega Shortfall Constraint: For each historical observation, enforce:
-    #   q[j] >= target*z - sum(y[i]*r[j, i])
+    # Omega shortfall constraint: for each observation j:
     def obs_constraint_rule(model, j):
         return model.q[j] >= target * model.z - sum(
             model.y[i] * returns.iloc[j, i] for i in model.assets
@@ -222,52 +271,36 @@ def build_omega_model(
 
     model.obs_constraints = pyo.Constraint(model.obs, rule=obs_constraint_rule)
 
-    # Upper Bound the y variables (weights).
-    def upper_bound_rule(model, i):
-        return model.y[i] <= max_weight * model.z
-
-    model.upper_bound = pyo.Constraint(model.assets, rule=upper_bound_rule)
-
-    if not allow_short:
-
-        def nonnegative_rule(model, i):
-            return model.y[i] >= 0
-
-        model.nonnegative = pyo.Constraint(model.assets, rule=nonnegative_rule)
-
-    # **Portfolio Volatility Constraint**
-    if vol_limit:
+    # Optional Volatility Constraint: if vol_limit is provided, enforce portfolio volatility <= vol_limit.
+    if vol_limit is not None:
         model.vol_constraint = pyo.Constraint(expr=model.port_vol <= vol_limit)
 
-    # **CVaR Constraint (Only if `returns` is provided)**
+    # Optional CVaR Constraint:
     if cvar_limit is not None and returns is not None:
-        T = returns.shape[0]
-        model.obs = pyo.Set(initialize=range(T))
-
-        # Auxiliary variables for CVaR in the Omega model
+        T_obs = returns.shape[0]
+        # Reinitialize obs set to ensure it covers T_obs.
+        model.obs = pyo.Set(initialize=range(T_obs))
+        # Auxiliary variables for CVaR.
         model.q_cvar = pyo.Var(model.obs, domain=pyo.NonNegativeReals)
         model.eta = pyo.Var(domain=pyo.Reals)  # VaR-like variable
 
-        # For each scenario j: enforce q[j] >= (unscaled loss) - eta.
         def omega_cvar_rule(model, j):
             unscaled_loss = -sum(model.y[i] * returns.iloc[j, i] for i in model.assets)
             return model.q_cvar[j] >= unscaled_loss - model.eta
 
         model.cvar_q_constraints = pyo.Constraint(model.obs, rule=omega_cvar_rule)
-
-        # CVaR definition in the homogeneous (y,z) space:
-        # When divided by z, CVaR = eta/z + (1/(alpha*T)) * sum_j q[j]/z.
-        # Multiply through by z to get:
+        # Enforce: CVaR = eta + (1/(alpha*T_obs))*sum_j q_cvar[j] <= cvar_limit * model.z
         model.cvar_constraint = pyo.Constraint(
-            expr=model.eta + (1 / (alpha * T)) * sum(model.q_cvar[j] for j in model.obs)
+            expr=model.eta
+            + (1 / (alpha * T_obs)) * sum(model.q_cvar[j] for j in model.obs)
             <= cvar_limit * model.z
         )
 
-    # Note: The recovered weights will be w = y / z.
-    # Objective: maximize y^T mu_robust - target * z.
+    # Objective: maximize (y^T mu_robust - target*z) which is equivalent to maximizing the Omega ratio.
     # We express this as minimizing its negative.
     model.obj = pyo.Objective(
         expr=-(sum(model.y[i] * mu_robust[i] for i in model.assets) - target * model.z),
         sense=pyo.minimize,
     )
+
     return model

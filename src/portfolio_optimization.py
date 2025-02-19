@@ -125,14 +125,23 @@ def run_optimization_and_save(
                 args=model_args,
             )
             # Convert weights from Pandas Series to NumPy array
-            weights_array = weights.to_numpy().reshape(-1, 1)  # Ensure it's a column vector
+            weights_array = weights.to_numpy().reshape(
+                -1, 1
+            )  # Ensure it's a column vector
             # Ensure weights align with cov_annual's tickers
             weights = weights.reindex(cov_annual.index, fill_value=0)
             # Convert to NumPy and compute portfolio volatility
             weights_array = weights.to_numpy()
-            current_vol: float = estimated_portfolio_volatility(weights_array, cov_annual.to_numpy())
+            current_vol: float = estimated_portfolio_volatility(
+                weights_array, cov_annual.to_numpy()
+            )
+
             portfolio_max_size = estimate_optimal_num_assets(
-                vol_limit=config.portfolio_max_vol if config.portfolio_max_vol else current_vol,
+                vol_limit=(
+                    config.portfolio_max_vol
+                    if config.portfolio_max_vol
+                    else current_vol
+                ),
                 portfolio_max_size=config.portfolio_max_size,
             ) or len(weights)
 

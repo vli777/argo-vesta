@@ -40,15 +40,14 @@ def optimize_weights_objective(
     objective: str = "sharpe",
     order: int = 3,
     target: float = 0.0,
-    max_weight: float = 1.0,
+    min_weight: Optional[float] = None,
+    max_weight: Optional[float] = None,
     allow_short: bool = False,
     target_sum: float = 1.0,
-    vol_limit: Optional[
-        float
-    ] = None,  # Constraint: maximum allowable portfolio volatility e.g., 0.15 for 15% vol
-    cvar_limit: Optional[
-        float
-    ] = None,  # Constraint: CVaR cannot exceed this threshold e.g., -0.02 for -2% CVaR
+    # Constraint: maximum allowable portfolio volatility e.g., 0.15 for 15% vol
+    vol_limit: Optional[float] = None,
+    # Constraint: CVaR cannot exceed this threshold e.g., -0.02 for -2% CVaR
+    cvar_limit: Optional[float] = None,
     alpha: float = 0.05,  # Tail probability for CVaR, default 5%
     min_return: float = 0.0,  # Constraint: minimum allowable cumulative return
     solver_method: str = "SLSQP",
@@ -67,6 +66,7 @@ def optimize_weights_objective(
         returns (Optional[pd.DataFrame]): Historical returns (T x n), where T is time.
         objective (str): Optimization objective (default 'sharpe').
         target (float): Target return (default 0.0).
+        min_weight (Optional[float]): Minimum weight per asset (for long-only). If None, defaults to 0.0.
         max_weight (float): Maximum weight per asset (default 1.0).
         allow_short (bool): Allow short positions (default False).
         target_sum (float): Sum of weights (default 1.0).
@@ -83,9 +83,20 @@ def optimize_weights_objective(
         np.ndarray: Optimized portfolio weights.
     """
     n = cov.shape[0]
+    # Default max_weight to 1.0 if not provided.
+    if max_weight is None:
+        max_weight = 1.0
+    else:
+        max_weight = float(max_weight)
     # Ensure max_weight is at least equal to equal allocation
     max_weight = max(1.0 / n, max_weight)
-    lower_bound = -max_weight if allow_short else 0.0
+    # Set lower bound based on whether shorting is allowed.
+    if allow_short:
+        lower_bound = -max_weight
+    else:
+        # If user provided a min_weight, use that; otherwise default to 0.
+        lower_bound = float(min_weight) if min_weight is not None else 0.0
+
     bounds = [(lower_bound, max_weight)] * n
 
     # Define CVaR constraint using the conditional_var function.
@@ -125,7 +136,8 @@ def optimize_weights_objective(
                 "Both historical returns and expected returns (mu) must be provided for Sharpe optimization."
             )
         if n < 50:
-            # logger.info("Optimizing for max Sharpe...")
+            logger.info("Optimizing for max Sharpe...")
+
             def obj(w: np.ndarray) -> float:
                 port_return = w @ mu
                 port_vol = estimated_portfolio_volatility(w, cov)
@@ -133,7 +145,7 @@ def optimize_weights_objective(
 
             chosen_obj = obj
         else:
-            # logger.info("Optimizing for max Sharpe with pyomo...")
+            logger.info("Optimizing for max Sharpe with pyomo...")
             model_pyomo = build_sharpe_model(
                 cov=cov,
                 mu=mu,
@@ -261,7 +273,10 @@ def optimize_weights_objective(
     )
 
     # Check feasibility of initial weights; adjust if necessary.
-    if vol_limit is not None and estimated_portfolio_volatility(init_weights, cov) > vol_limit:
+    if (
+        vol_limit is not None
+        and estimated_portfolio_volatility(init_weights, cov) > vol_limit
+    ):
         # Slightly dampen the weights if initial volatility is too high.
         init_weights *= 0.95
 

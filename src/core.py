@@ -25,6 +25,7 @@ from correlation.cluster_assets import get_cluster_labels
 from correlation.correlation_utils import compute_lw_covariance
 from risk_constraints import apply_risk_constraints
 from models.optimize_portfolio import estimated_portfolio_volatility
+from utils.logger import logger
 from utils.performance_metrics import conditional_var
 from utils.caching_utils import cleanup_cache
 from utils.data_utils import download_multi_ticker_data, process_input_files
@@ -33,9 +34,6 @@ from utils.portfolio_utils import (
     normalize_weights,
     stacked_output,
 )
-
-
-logger = logging.getLogger(__name__)
 
 
 def run_pipeline(
@@ -322,8 +320,7 @@ def run_pipeline(
     #####################################
     ##########  OPTIMIZATION  ###########
     #####################################
-    # Iterate through each time period and perform optimization
-    logger.info("Running optimization...")
+    # Iterate through each time period and perform optimization    
     for period in sorted_time_periods:
         if period != longest_period:
             config.plot_anomalies = False
@@ -368,7 +365,7 @@ def run_pipeline(
                 f"Test mode active: saved full_df.csv and limited data to {visible_length} records."
             )
 
-        logger.info(f"Running optimization with {valid_symbols}")
+        logger.info(f"Running optimization with {len(valid_symbols)} assets.")
         run_optimization_and_save(
             df=df_period,
             config=config,
