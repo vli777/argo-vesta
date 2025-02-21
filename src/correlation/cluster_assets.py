@@ -56,14 +56,16 @@ def get_cluster_labels(
             "epsilon": epsilon,
             "alpha": alpha,
             "cluster_selection_epsilon_max": cluster_selection_epsilon_max,
-            "min_cluster_size": 2 # min_cluster_size,
+            "min_cluster_size": 2,  # min_cluster_size,
             # "min_samples": min_samples,
         }
         save_parameters_to_pickle(cached_params, cache_filename)
         logger.info("Optimized parameters saved to cache.")
 
     # Compute the distance matrix (with optional re-scaling).
-    distance_matrix = compute_distance_matrix(returns_df, scale_distances=scale_distances)
+    distance_matrix = compute_distance_matrix(
+        returns_df, scale_distances=scale_distances
+    )
 
     # For reproducibility.
     np.random.seed(42)
@@ -72,7 +74,7 @@ def get_cluster_labels(
     clusterer = hdbscan.HDBSCAN(
         metric="precomputed",
         alpha=alpha,
-        min_cluster_size= 2, # min_cluster_size,
+        min_cluster_size=2,  # min_cluster_size,
         # min_samples=min_samples,
         cluster_selection_epsilon=epsilon,
         cluster_selection_method="leaf",

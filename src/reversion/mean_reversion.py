@@ -65,7 +65,6 @@ def apply_mean_reversion(
 
     # Only re-optimize if the cache is stale or some tickers are missing.
     if cache_is_stale or missing_tickers:
-        print(f"missing_tickers: {missing_tickers}")
         # If there are missing tickers, only pass that subset. Otherwise, use all tickers.
         returns_subset = returns_df[missing_tickers] if missing_tickers else returns_df
         updated_signals = cluster_mean_reversion(
@@ -114,6 +113,8 @@ def apply_mean_reversion(
     )
     realized_volatility = returns_df.rolling(window=30).std().mean(axis=1)
     adaptive_alpha = base_alpha / (1 + realized_volatility.iloc[-1])
+    print(f"Adaptive alpha: {adaptive_alpha}")
+
     final_allocation = adjust_allocation_with_mean_reversion(
         baseline_allocation=baseline_allocation,
         composite_signals=updated_composite_signals,

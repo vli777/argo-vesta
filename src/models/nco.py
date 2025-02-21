@@ -24,14 +24,14 @@ def nested_clustered_optimization(
     max_clusters: int = 10,
     max_weight: float = 1.0,
     allow_short: bool = False,
-    target: float = 0,
+    target: Optional[float] = None,
     order: int = 3,
     target_sum: float = 1.0,
+    risk_free_rate: float = 0.0,
 ) -> pd.Series:
     """
     Perform Nested Clustered Optimization with a flexible objective.
-    For objectives requiring historical returns (kappa or blend),
-    a 'returns' DataFrame must be provided.
+    For objectives requiring historical returns a 'returns' DataFrame must be provided.
 
     Args:
         cov (pd.DataFrame): Covariance matrix of asset returns.
@@ -41,9 +41,10 @@ def nested_clustered_optimization(
         max_clusters (int): Maximum number of clusters.
         max_weight (float): Maximum weight per asset.
         allow_short (bool): Allow short positions.
-        target (float): Target return (default 0).
+        target (float): Target threshold for Omega ratio tau.
         order (int): Order for downside risk metrics.
         target_sum (float): Sum of weights (default 1.0).
+        risk_free_rate (float): Risk free rate (default 0.0).
 
     Returns:
         pd.Series: Final portfolio weights.
@@ -63,6 +64,11 @@ def nested_clustered_optimization(
         mu = mu.loc[valid_assets]
     if returns is not None:
         returns = returns[valid_assets]
+
+    if target is None and returns is not None:
+        target = max(risk_free_rate, np.percentile(returns.to_numpy().flatten(), 30))
+    else:
+        target = risk_free_rate
 
     # Create the correlation matrix and cluster the assets
     corr = cov_to_corr(cov)

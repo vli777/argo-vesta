@@ -3,7 +3,7 @@ import numpy as np
 import optuna
 import pandas as pd
 
-from utils.performance_metrics import kappa_ratio, sharpe_ratio
+from utils.performance_metrics import sharpe_ratio
 
 
 class PortfolioAllocator:
@@ -168,12 +168,11 @@ class PortfolioAllocator:
                 return -np.inf
 
             sr = sharpe_ratio(portfolio_returns)
-            kr = kappa_ratio(portfolio_returns)
 
-            if np.isnan(sr) or np.isnan(kr):
+            if np.isnan(sr):
                 return -np.inf
 
-            return 0.5 * (sr + kr)
+            return sr
 
         study = optuna.create_study(direction="maximize")
         optuna.logging.set_verbosity(optuna.logging.WARNING)

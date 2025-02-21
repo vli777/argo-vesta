@@ -117,7 +117,6 @@ def propagate_signals_by_similarity(
     returns_df: pd.DataFrame,
     signal_dampening: float = 0.5,
     lw_threshold: int = 50,
-    corr_window: int = 90,
 ) -> dict:
     """
     Propagate composite signals within clusters by blending each ticker's own signal
@@ -132,8 +131,7 @@ def propagate_signals_by_similarity(
         group_mapping (dict): Mapping of cluster IDs to group info, which includes 'tickers'.
         returns_df (pd.DataFrame): Returns DataFrame (dates as index, tickers as columns).
         lw_threshold (int): Size threshold for using Ledoit Wolf vs Pearson correlation.
-        signal_dampening (float): Dampening factor when propagating signals
-        corr_window (int): Rolling window for correlation computation.
+        signal_dampening (float): Dampening factor when propagating original source signals.
 
     Returns:
         dict: Updated composite signals with propagated, normalized values.
@@ -142,6 +140,7 @@ def propagate_signals_by_similarity(
 
     for cluster_id, group_data in group_mapping.items():
         tickers_in_group = group_data.get("tickers", [])
+        group_params = group_data.get("params", {})
         # Only keep tickers that exist in the returns data.
         available_tickers = [
             ticker for ticker in tickers_in_group if ticker in returns_df.columns
@@ -149,10 +148,27 @@ def propagate_signals_by_similarity(
         if not available_tickers:
             continue
 
-        # Compute rolling returns and correlation matrix using the utility function
-        cluster_returns = (
-            returns_df[available_tickers].rolling(window=corr_window).mean()
-        )
+        # Extract group parameters.
+        # Expecting keys: "window_daily", "window_weekly", "weight_daily"
+        wd = group_params.get("weight_daily", 0.7)
+        ww = 1.0 - wd
+        window_daily = group_params.get("window_daily", 20)  # default if missing
+        window_weekly = group_params.get("window_weekly", 5)  # in weeks
+
+        # Convert weekly window to days (assuming 5 trading days per week)
+        window_weekly_days = window_weekly * 5
+
+        # Compute effective window as a weighted combination.
+        effective_window = wd * window_daily + ww * window_weekly_days
+        effective_window = int(round(effective_window))
+
+        # Convert log returns to simple returns before computing rolling mean
+        simple_returns = np.exp(returns_df[available_tickers]) - 1
+        cluster_returns = simple_returns.rolling(window=effective_window).mean()
+
+        # Drop NaNs before computing covariance
+        cluster_returns = cluster_returns.dropna()
+
         rolling_corr = compute_correlation_matrix(
             cluster_returns, lw_threshold=lw_threshold, use_abs=True
         )

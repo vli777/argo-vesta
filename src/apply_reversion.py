@@ -3,15 +3,13 @@ import numpy as np
 import pandas as pd
 
 from reversion.mean_reversion import apply_mean_reversion
-from boxplot import generate_boxplot_data
-from result_output import output
+from result_output import build_final_result_dict, compute_performance_results
 from config import Config
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
 from stat_arb.multi_asset_plots import plot_multi_asset_signals
 from stat_arb.multi_asset_reversion import MultiAssetReversion
 from stat_arb.portfolio_allocator import PortfolioAllocator
 from stat_arb.single_asset_reversion import OUHeatPotential
-from utils.performance_metrics import risk_return_contributions
 from utils.portfolio_utils import normalize_weights
 from utils.logger import logger
 
@@ -50,6 +48,7 @@ def apply_z_reversion(
         post_boxplot_stats,
         return_contributions_pct,
         risk_contributions_pct,
+        valid_symbols,
     ) = compute_performance_results(
         data=dfs["data"],
         start_date=str(dfs["start"]),
@@ -67,7 +66,7 @@ def apply_z_reversion(
         start_date=str(dfs["start"]),
         end_date=str(dfs["end"]),
         models=combined_models,
-        symbols=sorted_symbols_post,
+        symbols=valid_symbols,
         normalized_avg=mean_reverted_weights,
         daily_returns=post_daily_returns,
         cumulative_returns=post_cumulative_returns,
@@ -85,6 +84,7 @@ def apply_ou_reversion(
     sorted_time_periods: list,
     config: Config,
     returns_df: pd.DataFrame,
+    asset_cluster_map: dict[str, int] = None,
 ) -> dict:
     """
     Applies OU-based (heat potential) mean reversion and returns the final
@@ -115,7 +115,12 @@ def apply_ou_reversion(
     }
 
     # --- Cross-asset (multi-asset) mean reversion
-    multi_asset_strategy = MultiAssetReversion(dfs["data"])
+    multi_asset_strategy = MultiAssetReversion(
+        prices_df=dfs["data"],
+        asset_cluster_map=asset_cluster_map,
+        hidden_channels=64,
+        num_epochs=500,
+    )
     multi_asset_results = multi_asset_strategy.optimize_and_trade()
 
     weights_series = pd.Series(multi_asset_results["Hedge Ratios"]).reindex(
@@ -164,6 +169,7 @@ def apply_ou_reversion(
         adjusted_boxplot_stats,
         return_contributions_pct,
         risk_contributions_pct,
+        valid_symbols,
     ) = compute_performance_results(
         data=dfs["data"],
         start_date=str(dfs["start"]),
@@ -180,7 +186,7 @@ def apply_ou_reversion(
         start_date=str(dfs["start"]),
         end_date=str(dfs["end"]),
         models=combined_models,
-        symbols=sorted(normalized_avg_weights.keys()),
+        symbols=valid_symbols,  # sorted(normalized_avg_weights.keys()),
         normalized_avg=sorted_stat_arb_allocation,
         daily_returns=adjusted_daily_returns,
         cumulative_returns=adjusted_cumulative_returns,
@@ -188,87 +194,3 @@ def apply_ou_reversion(
         return_contributions=return_contributions_pct,
         risk_contributions=risk_contributions_pct,
     )
-
-
-def compute_performance_results(
-    data: pd.DataFrame,
-    start_date: str,
-    end_date: str,
-    allocation_weights: Dict[str, float],
-    sorted_symbols: list,
-    combined_input_files: str,
-    combined_models: str,
-    sorted_time_periods: list,
-    config: Config,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray]:
-    """
-    Compute daily returns, cumulative returns, boxplot stats, and risk/return contributions.
-
-    Returns:
-    daily_returns, cumulative_returns, boxplot_stats, return_contributions_pct, risk_contributions_pct
-    """
-    # Compute daily & cumulative returns
-    daily_returns, cumulative_returns = output(
-        data=data,
-        start_date=start_date,
-        end_date=end_date,
-        allocation_weights=allocation_weights,
-        inputs=combined_input_files,
-        optimization_model=f"{combined_models} ENSEMBLE: {config.optimization_objective}",
-        time_period=sorted_time_periods[0],
-        config=config,
-    )
-
-    boxplot_stats = generate_boxplot_data(daily_returns)
-
-    # Ensure only stocks present in cumulative_returns are used
-    valid_stocks = [s for s in sorted_symbols if s in cumulative_returns.columns]
-    np_weights = np.array([allocation_weights[s] for s in valid_stocks])
-    # Extract final cumulative returns per stock
-    contribution_cumulative_returns = cumulative_returns.loc[
-        cumulative_returns.index[-1], valid_stocks
-    ].values
-
-    # Compute risk and return contributions
-    return_contributions_pct, risk_contributions_pct = risk_return_contributions(
-        weights=np_weights,
-        daily_returns=daily_returns[valid_stocks],
-        cumulative_returns=contribution_cumulative_returns,
-    )
-
-    return (
-        daily_returns,
-        cumulative_returns,
-        boxplot_stats,
-        return_contributions_pct,
-        risk_contributions_pct,
-    )
-
-
-def build_final_result_dict(
-    start_date: str,
-    end_date: str,
-    models: str,
-    symbols: list,
-    normalized_avg: dict,
-    daily_returns: pd.DataFrame,
-    cumulative_returns: pd.DataFrame,
-    boxplot_stats,
-    return_contributions: np.ndarray,
-    risk_contributions: np.ndarray,
-) -> dict:
-    """
-    Constructs the final results dictionary.
-    """
-    return {
-        "start_date": start_date,
-        "end_date": end_date,
-        "models": models,
-        "symbols": symbols,
-        "normalized_avg": normalized_avg,
-        "daily_returns": daily_returns,
-        "cumulative_returns": cumulative_returns,
-        "boxplot_stats": boxplot_stats,
-        "return_contributions": return_contributions,
-        "risk_contributions": risk_contributions,
-    }

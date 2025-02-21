@@ -5,7 +5,7 @@ import pandas as pd
 from scipy.optimize import minimize
 import plotly.graph_objects as go
 
-from utils.performance_metrics import kappa_ratio, sharpe_ratio
+from utils.performance_metrics import sharpe_ratio
 
 
 class OUHeatPotential:
@@ -130,7 +130,6 @@ class OUHeatPotential:
                 "Total Trades": 0,
                 "Sharpe Ratio": 0,
                 "Win Rate": 0,
-                "Kappa Ratio": 0,
                 "Optimized Kelly Fraction": 0,
                 "Risk Parity Allocation": {},
             }
@@ -143,12 +142,10 @@ class OUHeatPotential:
         sharpe_r = sharpe_ratio(
             returns_series, entries_per_year=252, risk_free_rate=0.0
         )
-        kappa_r = kappa_ratio(returns_series, order=3)
         metrics = {
             "Total Trades": len(trades),
             "Sharpe Ratio": sharpe_r,
             "Win Rate": win_rate,
-            "Kappa Ratio": kappa_r,
         }
         return returns, metrics
 
@@ -162,7 +159,6 @@ class OUHeatPotential:
             metrics["Sharpe Ratio"]
             * metrics["Win Rate"]
             * np.log(metrics["Total Trades"] + 1)
-            * metrics["Kappa Ratio"]
         )
 
     def run_strategy(self):

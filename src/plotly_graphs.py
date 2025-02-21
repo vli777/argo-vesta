@@ -10,6 +10,7 @@ from plotly.subplots import make_subplots
 import itertools
 
 from config import Config
+from utils.logger import logger
 
 
 def load_colors_from_json(file_name: str, directory: str = "styles") -> dict:
@@ -356,6 +357,24 @@ def plot_risk_return_contributions(
     Plots the return and risk contributions as pie charts in the top row,
     and a Sharpe Ratio bar chart in the bottom row (sorted in ascending order).
     """
+    # Ensure all input arrays have the same length
+    min_length = min(len(symbols), len(return_contributions), len(risk_contributions))
+
+    if len(symbols) != min_length:
+        logger.info(f"Trimming symbols list from {len(symbols)} to {min_length}")
+        symbols = symbols[:min_length]
+
+    if len(return_contributions) != min_length:
+        logger.warning(
+            f"Trimming return contributions from {len(return_contributions)} to {min_length}"
+        )
+        return_contributions = return_contributions[:min_length]
+
+    if len(risk_contributions) != min_length:
+        logger.warning(
+            f"Trimming risk contributions from {len(risk_contributions)} to {min_length}"
+        )
+        risk_contributions = risk_contributions[:min_length]
 
     # Compute Sharpe Ratio (Avoid division by zero)
     sharpe_ratios = np.divide(

@@ -3,7 +3,10 @@ import numpy as np
 import optuna
 import pandas as pd
 
-from models.optimizer_utils import strategy_composite_score, strategy_performance_metrics
+from models.optimizer_utils import (
+    strategy_composite_score,
+    strategy_performance_metrics,
+)
 from utils.z_scores import calculate_robust_zscores
 from utils.logger import logger
 

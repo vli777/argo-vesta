@@ -5,7 +5,10 @@ from reversion.reversion_utils import (
     adjust_allocation_with_mean_reversion,
     propagate_signals_by_similarity,
 )
-from models.optimizer_utils import strategy_composite_score, strategy_performance_metrics
+from models.optimizer_utils import (
+    strategy_composite_score,
+    strategy_performance_metrics,
+)
 
 # optuna.logging.set_verbosity(optuna.logging.ERROR)
 

@@ -54,11 +54,6 @@ def compute_stateful_signal_with_decay(
         series.rolling(window=window, min_periods=window).std().replace(0, np.nan)
     )
     z_scores = (series - rolling_mean) / rolling_std
-
-    # Compute adaptive decay rate based on realized volatility
-    rolling_vol = rolling_std.copy()
-    adaptive_decay_rate = target_decay ** (rolling_vol / rolling_vol.mean())
-
     # Initialize arrays.
     state = np.zeros(len(series))  # 0: neutral, -1: overbought, +1: oversold.
     state_age = np.zeros(len(series))
@@ -89,10 +84,18 @@ def compute_stateful_signal_with_decay(
                 state[i] = 0
                 state_age[i] = 0
 
-        # Compute decay multiplier.
-        decay_multiplier = (
-            adaptive_decay_rate.iloc[i] ** state_age[i] if state[i] != 0 else 0
-        )
+        # Compute adaptive decay rate based on realized volatility
+        # rolling_vol = rolling_std.copy()
+        # adaptive_decay_rate = target_decay ** (rolling_vol / rolling_vol.mean())
+        # decay_multiplier = (
+        #     adaptive_decay_rate.iloc[i] ** state_age[i] if state[i] != 0 else 0
+        # )
+
+        # Compute decay multiplier proportional to the series optimal reversion window.
+        if state[i] != 0:
+            decay_multiplier = target_decay ** (state_age[i] / window)
+        else:
+            decay_multiplier = 0
 
         # Determine magnitude
         thresh = (
