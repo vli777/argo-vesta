@@ -7,6 +7,7 @@ from sklearn.cluster import KMeans
 import torch
 
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
+from utils import logger
 from stat_arb.graph_autoencoder import construct_graph, train_gae
 from utils.performance_metrics import sharpe_ratio
 
@@ -15,6 +16,7 @@ class MultiAssetReversion:
     def __init__(
         self,
         prices_df: pd.DataFrame,
+        asset_cluster_map: dict[str, int] = None,
         hidden_channels=32,
         num_epochs=200,
         learning_rate=0.01,
@@ -27,6 +29,8 @@ class MultiAssetReversion:
 
         Args:
             prices_df (pd.DataFrame): Price data DataFrame (regular prices) with each column as a ticker.
+            asset_cluster_map (dict[str, int], optional): Mapping from asset tickers to cluster labels.
+                Assets labeled as -1 are considered noise and are excluded.
             hidden_channels (int): Hidden dimension size for the GNN.
             num_epochs (int): Number of epochs for GNN training.
             learning_rate (float): Learning rate for GNN training.
@@ -46,6 +50,18 @@ class MultiAssetReversion:
         self.prices_df = np.log(prices_df)
         self.returns_df = self.prices_df.diff().dropna()
 
+        # --- Cointegration Basket Construction ---
+        if asset_cluster_map is not None:
+            # Filter the asset cluster map to only include relevant assets
+            filtered_asset_cluster_map = self.filter_asset_cluster_map(
+                asset_cluster_map
+            )
+            # Use externally provided cluster mapping.
+            self.hedge_ratios, self.spread_series = (
+                self.construct_cointegrated_baskets_from_map(
+                    filtered_asset_cluster_map
+                )
+            )
         # --- Hybrid GNN + Johansen Step ---
         self.hedge_ratios, self.spread_series = self.construct_cointegrated_baskets(
             hidden_channels, num_epochs, learning_rate, p_value_threshold, n_clusters
@@ -55,6 +71,84 @@ class MultiAssetReversion:
         self.kelly_fractions = self.compute_dynamic_kelly()
         self.risk_parity_weights = self.compute_risk_parity_weights()
         self.optimal_params = self.optimize_kelly_risk_parity()
+
+    def filter_asset_cluster_map(
+        self, asset_cluster_map: dict[str, int]
+    ) -> dict[str, int]:
+        """
+        Filters the asset cluster map to include only assets present in prices_df.
+
+        Args:
+            asset_cluster_map (dict[str, int]): The full asset cluster map.
+
+        Returns:
+            dict[str, int]: A filtered map with only relevant assets.
+        """
+        valid_assets = set(self.prices_df.columns)
+        filtered_map = {
+            asset: cluster_id
+            for asset, cluster_id in asset_cluster_map.items()
+            if asset in valid_assets and cluster_id != -1
+        }
+
+        # Debug: Check filtered asset distribution
+        logger.info(
+            f"Filtered {len(filtered_map)} assets from {len(asset_cluster_map)} in the original map."
+        )
+
+        return filtered_map
+
+    def construct_cointegrated_baskets_from_map(
+        self, asset_cluster_map: dict[str, int]
+    ):
+        """
+        Constructs cointegrated baskets using an externally provided asset_cluster_map.
+        Assets labeled as -1 (noise) are ignored.
+
+        Args:
+            asset_cluster_map (dict[str, int]): Mapping from asset tickers to cluster labels.
+
+        Returns:
+            tuple: (hedge_ratios dictionary, aggregated basket spread series)
+        """
+        hedge_ratios = {}
+        basket_spread = pd.Series(0, index=self.prices_df.index)
+
+        # Group assets by their cluster labels (ignore noise labeled as -1).
+        clusters = {}
+        for asset, cluster_label in asset_cluster_map.items():
+            if cluster_label == -1:
+                continue
+            clusters.setdefault(cluster_label, []).append(asset)
+
+        # For each cluster, run Johansen test to obtain cointegration vectors.
+        for cluster_label, assets in clusters.items():
+            # Filter out assets that are not present in prices_df
+            valid_assets = [asset for asset in assets if asset in self.prices_df.columns]
+
+            if len(valid_assets) < 2:
+                logger.info(f"Skipping cluster {cluster_label}: Not enough valid assets for cointegration.")
+                continue
+            
+            # Use valid_assets instead of assets to avoid KeyError
+            cluster_prices = self.prices_df[valid_assets]
+            
+            if cluster_prices.shape[1] < 2:
+                # Single asset: assign full weight.
+                hedge_ratios[valid_assets[0]] = 1.0
+                basket_spread += cluster_prices.iloc[:, 0]
+            else:
+                try:
+                    result = coint_johansen(cluster_prices, det_order=0, k_ar_diff=1)
+                    cointegration_vector = result.evec[:, 0]
+                    cointegration_vector /= np.sum(np.abs(cointegration_vector))  # Normalize
+                    for asset, weight in zip(valid_assets, cointegration_vector):
+                        hedge_ratios[asset] = weight
+                    basket_spread += cluster_prices.dot(cointegration_vector)
+                except Exception as e:
+                    logger.info(f"Cluster {cluster_label} Johansen test error: {e}")
+
+        return hedge_ratios, basket_spread
 
     def construct_cointegrated_baskets(
         self, hidden_channels, num_epochs, learning_rate, p_value_threshold, n_clusters
@@ -82,7 +176,9 @@ class MultiAssetReversion:
             clusters = np.zeros(n_samples, dtype=int)
         else:
             n_clusters = min(n_clusters, n_samples)
-            clusters = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(latent)
+            clusters = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(
+                latent
+            )
 
         hedge_ratios = {}
         basket_spread = pd.Series(0, index=self.prices_df.index)
@@ -110,7 +206,7 @@ class MultiAssetReversion:
                     # Compute basket spread for this cluster
                     basket_spread += cluster_prices.dot(cointegration_vector)
                 except Exception as e:
-                    print(f"Cluster {cluster_id} Johansen test error: {e}")
+                    logger.info(f"Cluster {cluster_id} Johansen test error: {e}")
 
         return hedge_ratios, basket_spread
 

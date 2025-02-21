@@ -559,6 +559,7 @@ def run_pipeline(
                 combined_models=f"{combined_models} + ou-reversion",
                 sorted_time_periods=sorted_time_periods,
                 config=config,
+                asset_cluster_map=asset_cluster_map,
                 returns_df=returns_df,
             )
 

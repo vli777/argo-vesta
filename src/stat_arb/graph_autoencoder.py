@@ -78,18 +78,21 @@ def train_gae(
     hidden_channels: int = 32,
     num_epochs: int = 200,
     learning_rate: float = 0.01,
+    patience: int = 20,
+    min_delta: float = 1e-8,
     device: str = None,
 ) -> GAE:
     """
-    Trains a Graph Autoencoder (GAE) on the provided graph data. The GAE learns latent embeddings
-    by attempting to reconstruct the graph structure via an inner product decoder.
+    Trains a Graph Autoencoder (GAE) with early stopping if the loss converges.
 
     Args:
         data (Data): PyTorch Geometric Data object containing the graph.
         hidden_channels (int): Dimension of the latent embeddings.
-        num_epochs (int): Number of training epochs.
+        num_epochs (int): Maximum number of training epochs.
         learning_rate (float): Learning rate for the optimizer.
-        device (str): Computation device ('cpu' or 'cuda'). Defaults to cuda if available.
+        patience (int): Number of epochs with no improvement to wait before stopping.
+        min_delta (float): Minimum change in loss to qualify as an improvement.
+        device (str): Computation device ('cpu' or 'cuda'). Defaults to 'cuda' if available.
 
     Returns:
         GAE: The trained Graph Autoencoder model.
@@ -102,6 +105,10 @@ def train_gae(
     data = data.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    # Early Stopping Parameters
+    best_loss = float("inf")
+    epochs_no_improve = 0
+
     model.train()
     for epoch in range(1, num_epochs + 1):
         optimizer.zero_grad()
@@ -109,8 +116,21 @@ def train_gae(
         loss = model.recon_loss(z, data.edge_index)
         loss.backward()
         optimizer.step()
+
         if epoch % 10 == 0:
             print(f"Epoch {epoch:03d}, Loss: {loss.item():.4f}")
+
+        # Early Stopping Check
+        if loss.item() < best_loss - min_delta:
+            best_loss = loss.item()
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+
+        if epochs_no_improve >= patience:
+            print(f"Early stopping at epoch {epoch} with loss {best_loss:.4f}")
+            break
+
     return model
 
 

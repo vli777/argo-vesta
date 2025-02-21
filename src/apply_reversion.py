@@ -83,6 +83,7 @@ def apply_ou_reversion(
     combined_models: str,
     sorted_time_periods: list,
     config: Config,
+    asset_cluster_map: dict,
     returns_df: pd.DataFrame,
 ) -> dict:
     """
@@ -114,7 +115,12 @@ def apply_ou_reversion(
     }
 
     # --- Cross-asset (multi-asset) mean reversion
-    multi_asset_strategy = MultiAssetReversion(dfs["data"])
+    multi_asset_strategy = MultiAssetReversion(
+        prices_df=dfs["data"],
+        asset_cluster_map=asset_cluster_map,
+        hidden_channels=64,
+        num_epochs=500,
+    )
     multi_asset_results = multi_asset_strategy.optimize_and_trade()
 
     weights_series = pd.Series(multi_asset_results["Hedge Ratios"]).reindex(
