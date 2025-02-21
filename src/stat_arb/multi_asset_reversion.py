@@ -76,6 +76,7 @@ class MultiAssetReversion:
             latent = gae_model.encode(data.x, data.edge_index).cpu().numpy()
 
         # Cluster latent embeddings to segment assets
+        n_clusters = min(n_clusters, len(self.prices_df))
         kmeans = KMeans(n_clusters=n_clusters, random_state=42)
         clusters = kmeans.fit_predict(latent)
 
