@@ -83,8 +83,8 @@ def apply_ou_reversion(
     combined_models: str,
     sorted_time_periods: list,
     config: Config,
-    asset_cluster_map: dict,
     returns_df: pd.DataFrame,
+    asset_cluster_map: dict[str, int] = None,
 ) -> dict:
     """
     Applies OU-based (heat potential) mean reversion and returns the final
