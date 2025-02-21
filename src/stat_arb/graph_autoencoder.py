@@ -7,6 +7,8 @@ from torch_geometric.nn import GCNConv, GAE
 from sklearn.cluster import KMeans
 from statsmodels.tsa.stattools import coint
 
+from utils import logger
+
 
 def construct_graph(
     log_prices: pd.DataFrame, returns: pd.DataFrame, p_value_threshold: float = 0.05
@@ -118,7 +120,7 @@ def train_gae(
         optimizer.step()
 
         if epoch % 10 == 0:
-            print(f"Epoch {epoch:03d}, Loss: {loss.item():.4f}")
+            logger.info(f"Epoch {epoch:03d}, Loss: {loss.item():.4f}")
 
         # Early Stopping Check
         if loss.item() < best_loss - min_delta:
@@ -128,7 +130,7 @@ def train_gae(
             epochs_no_improve += 1
 
         if epochs_no_improve >= patience:
-            print(f"Early stopping at epoch {epoch} with loss {best_loss:.4f}")
+            logger.info(f"Early stopping at epoch {epoch} with loss {best_loss:.4f}")
             break
 
     return model

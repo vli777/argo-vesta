@@ -127,7 +127,7 @@ class MultiAssetReversion:
             valid_assets = [asset for asset in assets if asset in self.prices_df.columns]
 
             if len(valid_assets) < 2:
-                logger.info(f"Skipping cluster {cluster_label}: Not enough valid assets for cointegration.")
+                logger.debug(f"Skipping cluster {cluster_label}")
                 continue
             
             # Use valid_assets instead of assets to avoid KeyError
