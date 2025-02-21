@@ -7,10 +7,9 @@ from torch_geometric.nn import GCNConv, GAE
 from sklearn.cluster import KMeans
 from statsmodels.tsa.stattools import coint
 
+
 def construct_graph(
-    log_prices: pd.DataFrame,
-    returns: pd.DataFrame,
-    p_value_threshold: float = 0.05
+    log_prices: pd.DataFrame, returns: pd.DataFrame, p_value_threshold: float = 0.05
 ) -> Data:
     """
     Constructs a graph where nodes represent assets and edges represent cointegration
@@ -28,7 +27,7 @@ def construct_graph(
     num_assets = log_prices.shape[1]
     edges = []
     edge_weights = []
-    
+
     # Iterate over all unique asset pairs (O(n^2); consider parallelizing for large n)
     for i in range(num_assets):
         for j in range(i + 1, num_assets):
@@ -39,9 +38,11 @@ def construct_graph(
                 edges.append([j, i])
                 edge_weights.append(score)
                 edge_weights.append(score)
-    
+
     if not edges:
-        raise ValueError("No cointegration relationships found with the given p-value threshold.")
+        raise ValueError(
+            "No cointegration relationships found with the given p-value threshold."
+        )
 
     edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
     edge_attr = torch.tensor(edge_weights, dtype=torch.float)
@@ -51,6 +52,7 @@ def construct_graph(
     node_features = torch.tensor(returns.T.values, dtype=torch.float)
 
     return Data(x=node_features, edge_index=edge_index, edge_attr=edge_attr)
+
 
 class GCNEncoder(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_channels: int):
@@ -70,12 +72,13 @@ class GCNEncoder(torch.nn.Module):
         x = self.conv2(x, edge_index)
         return x
 
+
 def train_gae(
     data: Data,
     hidden_channels: int = 32,
     num_epochs: int = 200,
     learning_rate: float = 0.01,
-    device: str = None
+    device: str = None,
 ) -> GAE:
     """
     Trains a Graph Autoencoder (GAE) on the provided graph data. The GAE learns latent embeddings
@@ -110,11 +113,9 @@ def train_gae(
             print(f"Epoch {epoch:03d}, Loss: {loss.item():.4f}")
     return model
 
+
 def cluster_embeddings(
-    model: GAE,
-    data: Data,
-    num_clusters: int = 10,
-    device: str = None
+    model: GAE, data: Data, num_clusters: int = 10, device: str = None
 ) -> dict:
     """
     Extracts latent node embeddings from the trained GAE model and clusters them using KMeans.
@@ -141,33 +142,3 @@ def cluster_embeddings(
     # Generate asset labels; modify if you have custom asset names.
     asset_names = [f"Asset_{i}" for i in range(data.num_nodes)]
     return {asset_names[i]: int(clusters[i]) for i in range(data.num_nodes)}
-
-# === Example Execution ===
-if __name__ == "__main__":
-    # Set seeds for reproducibility
-    np.random.seed(42)
-    torch.manual_seed(42)
-
-    # Generate synthetic log-price data
-    num_assets = 100
-    num_days = 500
-    log_prices = pd.DataFrame(
-        np.cumsum(np.random.normal(0, 1, (num_days, num_assets)), axis=0),
-        columns=[f"Asset_{i}" for i in range(num_assets)]
-    )
-    returns = log_prices.pct_change().dropna()
-
-    # Construct the cointegration graph
-    try:
-        data = construct_graph(log_prices, returns, p_value_threshold=0.05)
-    except ValueError as e:
-        print(e)
-        exit()
-
-    # Train the Graph Autoencoder to learn latent embeddings
-    model = train_gae(data, hidden_channels=32, num_epochs=200, learning_rate=0.01)
-
-    # Cluster the learned embeddings to identify baskets of cointegrated assets
-    asset_clusters = cluster_embeddings(model, data, num_clusters=10)
-    print("Asset Clusters:")
-    print(asset_clusters)
