@@ -19,7 +19,7 @@ class MultiAssetReversion:
         num_epochs=200,
         learning_rate=0.01,
         p_value_threshold=0.05,
-        n_clusters=20,
+        n_clusters=42,
     ):
         """
         Multi-asset mean reversion strategy using a hybrid GNN + Johansen approach.
@@ -76,9 +76,13 @@ class MultiAssetReversion:
             latent = gae_model.encode(data.x, data.edge_index).cpu().numpy()
 
         # Cluster latent embeddings to segment assets
-        n_clusters = min(n_clusters, len(self.prices_df))
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-        clusters = kmeans.fit_predict(latent)
+        # Use the number of latent samples (number of assets) to adjust n_clusters if needed.
+        n_samples = latent.shape[0]
+        if n_samples < 2:
+            clusters = np.zeros(n_samples, dtype=int)
+        else:
+            n_clusters = min(n_clusters, n_samples)
+            clusters = KMeans(n_clusters=n_clusters, random_state=42).fit_predict(latent)
 
         hedge_ratios = {}
         basket_spread = pd.Series(0, index=self.prices_df.index)
