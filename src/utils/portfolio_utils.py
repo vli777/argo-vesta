@@ -95,7 +95,7 @@ def convert_weights_to_series(weights, index=None):
         return pd.Series(dtype=float)
 
 
-def normalize_weights(weights, min_weight: float = 0.0) -> pd.Series:
+def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
     """
     Normalize the weights by filtering out values below min_weight and scaling the remaining weights to sum to 1.
     If no weights meet the min_weight threshold, the original weights are returned, scaled to sum to 1.
@@ -110,6 +110,10 @@ def normalize_weights(weights, min_weight: float = 0.0) -> pd.Series:
     logger.debug(f"Original weights: {weights}")
     logger.debug(f"Minimum weight threshold: {min_weight}")
 
+    # If min_weight is None, default to 0.01 so that weights of 0 are removed.
+    if min_weight is None:
+        min_weight = 0.01
+        
     # Convert dict to Series if necessary
     if isinstance(weights, dict):
         weights = pd.Series(weights)

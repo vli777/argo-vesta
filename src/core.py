@@ -255,7 +255,7 @@ def run_pipeline(
 
         # Normalize weights. (normalize_weights is used elsewhere so we leave it unchanged)
         normalized_weights = normalize_weights(sorted_weights, config.min_weight)
-        logger.info(f"\nNormalized avg weights: {normalized_weights}")
+        # logger.debug(f"\nNormalized avg weights: {normalized_weights}")
 
         # Ensure output is a dictionary.
         if isinstance(normalized_weights, pd.Series):
@@ -468,8 +468,10 @@ def run_pipeline(
             config.allow_short = True
 
         # Final pass: apply risk constraints to the merged portfolio
-        risk_adjusted_weights = apply_risk_constraints(
-            normalized_avg_weights, risk_estimates, config
+        risk_adjusted_weights = (
+            apply_risk_constraints(normalized_avg_weights, risk_estimates, config)
+            if (config.portfolio_max_cvar or config.portfolio_max_vol)
+            else normalized_avg_weights
         )
 
         final_weights = normalize_weights(
@@ -490,9 +492,9 @@ def run_pipeline(
     final_weights_series = pd.Series(final_weights)
     if not (final_weights_series.equals(normalized_avg_weights)):
         if config.portfolio_max_vol is not None:
-            combined_models += f" + σ {config.portfolio_max_vol:.2f}"
+            combined_models += f" + σ <= {config.portfolio_max_vol:.2f}"
         if config.portfolio_max_cvar is not None:
-            combined_models += f" + CVaR {config.portfolio_max_cvar:.2f}"
+            combined_models += f" + CVaR <= {config.portfolio_max_cvar:.2f}"
 
     # Sort symbols and filter DataFrame accordingly
     sorted_symbols = sorted(final_weights.keys())

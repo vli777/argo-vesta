@@ -156,7 +156,7 @@ def output(
     # Print portfolio allocation in tab-separated format
     sorted_weights = sorted(clean_weights.items(), key=lambda kv: kv[1], reverse=True)
     for asset, weight in sorted_weights:
-        print(f"{asset}\t{weight:.4f}")
+        print(f"{asset}\t{weight * 100:.2f}%")
 
     return all_daily_returns, all_cumulative_returns
 
