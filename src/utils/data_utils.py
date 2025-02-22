@@ -444,7 +444,8 @@ def convert_to_yfinance_format(data: dict, symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(candles)
-    df["datetime"] = pd.to_datetime(df["datetime"], unit="ms")
+    # Normalize datetime to midnight to avoid duplicate index errors
+    df["datetime"] = pd.to_datetime(df["datetime"], unit="ms").normalize()
     df.set_index("datetime", inplace=True)
 
     # Create a multi-index DataFrame similar to yfinance output
