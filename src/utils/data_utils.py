@@ -3,6 +3,7 @@ from typing import Optional
 import unicodedata
 import numpy as np
 import pandas as pd
+from requests import HTTPError
 import yfinance as yf
 from pathlib import Path
 import re
