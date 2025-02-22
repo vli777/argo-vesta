@@ -58,9 +58,7 @@ class MultiAssetReversion:
             )
             # Use externally provided cluster mapping.
             self.hedge_ratios, self.spread_series = (
-                self.construct_cointegrated_baskets_from_map(
-                    filtered_asset_cluster_map
-                )
+                self.construct_cointegrated_baskets_from_map(filtered_asset_cluster_map)
             )
         # --- Hybrid GNN + Johansen Step ---
         self.hedge_ratios, self.spread_series = self.construct_cointegrated_baskets(
@@ -124,15 +122,17 @@ class MultiAssetReversion:
         # For each cluster, run Johansen test to obtain cointegration vectors.
         for cluster_label, assets in clusters.items():
             # Filter out assets that are not present in prices_df
-            valid_assets = [asset for asset in assets if asset in self.prices_df.columns]
+            valid_assets = [
+                asset for asset in assets if asset in self.prices_df.columns
+            ]
 
             if len(valid_assets) < 2:
                 logger.debug(f"Skipping cluster {cluster_label}")
                 continue
-            
+
             # Use valid_assets instead of assets to avoid KeyError
             cluster_prices = self.prices_df[valid_assets]
-            
+
             if cluster_prices.shape[1] < 2:
                 # Single asset: assign full weight.
                 hedge_ratios[valid_assets[0]] = 1.0
@@ -141,7 +141,9 @@ class MultiAssetReversion:
                 try:
                     result = coint_johansen(cluster_prices, det_order=0, k_ar_diff=1)
                     cointegration_vector = result.evec[:, 0]
-                    cointegration_vector /= np.sum(np.abs(cointegration_vector))  # Normalize
+                    cointegration_vector /= np.sum(
+                        np.abs(cointegration_vector)
+                    )  # Normalize
                     for asset, weight in zip(valid_assets, cointegration_vector):
                         hedge_ratios[asset] = weight
                     basket_spread += cluster_prices.dot(cointegration_vector)
@@ -294,35 +296,69 @@ class MultiAssetReversion:
         signals["Exit Price"] = np.nan
 
         position = 0
+        entry_price = np.nan
+
         for t in signals.index:
             dev = deviations.loc[t]
             current_price = self.spread_series.loc[t]
+
             if position == 0:
+                # No current position, so check for entry signals.
                 if dev < stop_loss:
                     position = 1
+                    entry_price = current_price
                     signals.loc[t, "Position"] = 1
-                    signals.loc[t, "Entry Price"] = current_price
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = (
+                        current_price  # set initial exit price
+                    )
                 elif dev > take_profit:
                     position = -1
+                    entry_price = current_price
                     signals.loc[t, "Position"] = -1
-                    signals.loc[t, "Entry Price"] = current_price
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = (
+                        current_price  # set initial exit price
+                    )
                 else:
                     signals.loc[t, "Position"] = 0
+                    # Leave Entry and Exit prices as NaN when no position.
             elif position == 1:
+                # Long position is open.
                 if dev >= 0:
+                    # Exit condition met for a long.
                     signals.loc[t, "Position"] = 0
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
+                    entry_price = np.nan
                 else:
                     signals.loc[t, "Position"] = 1
+                    signals.loc[t, "Entry Price"] = (
+                        entry_price  # keep the original entry price
+                    )
+                    signals.loc[t, "Exit Price"] = (
+                        current_price  # update exit price continuously
+                    )
             elif position == -1:
+                # Short position is open.
                 if dev <= 0:
+                    # Exit condition met for a short.
                     signals.loc[t, "Position"] = 0
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
+                    entry_price = np.nan
                 else:
                     signals.loc[t, "Position"] = -1
-        signals["Position"] = signals["Position"].ffill().fillna(0)
+                    signals.loc[t, "Entry Price"] = (
+                        entry_price  # keep the original entry price
+                    )
+                    signals.loc[t, "Exit Price"] = (
+                        current_price  # update exit price continuously
+                    )
+
+        signals["Entry Price"] = signals["Entry Price"].ffill()
+        signals["Exit Price"] = signals["Exit Price"].ffill()
+
         return signals
 
     def simulate_strategy(self, signals):
