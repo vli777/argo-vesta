@@ -22,6 +22,7 @@ allow_short: bool # Whether to allow shorting (WIP)
 
 plot_daily_returns: bool # Whether to plot daily returns
 plot_cumulative_returns: bool # Whether to plot cumulative returns
+plot_contribution: bool # Whether to plot return - risk contribution
 plot_clustering: bool # Where to plot hierarchical clustering dendrogram
 plot_anomalies: bool # Whether to plot anomalies detected by Kalman filter
 plot_reversion: bool # Whether to plot mean reversion parameters

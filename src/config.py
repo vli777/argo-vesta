@@ -25,6 +25,7 @@ class Config:
 
     plot_daily_returns: bool
     plot_cumulative_returns: bool
+    plot_contribution: bool
     plot_anomalies: bool
     plot_clustering: bool
     plot_reversion: bool
@@ -82,6 +83,7 @@ class Config:
             allow_short=config_dict.get("allow_short", False),
             plot_daily_returns=config_dict.get("plot_daily_returns", False),
             plot_cumulative_returns=config_dict.get("plot_cumulative_returns", False),
+            plot_contribution=config_dict.get("plot_contribution", False),
             plot_clustering=config_dict.get("plot_clustering", False),
             plot_anomalies=config_dict.get("plot_anomalies", False),
             plot_reversion=config_dict.get("plot_reversion", False),

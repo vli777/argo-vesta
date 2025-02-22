@@ -125,11 +125,12 @@ def iterative_pipeline_runner(
             config=config,
             symbols=final_result["symbols"],
         )
-        plot_risk_return_contributions(
-            symbols=final_result["symbols"],
-            return_contributions=final_result["return_contributions"],
-            risk_contributions=final_result["risk_contributions"],
-        )
+        if config.plot_contribution:
+            plot_risk_return_contributions(
+                symbols=final_result["symbols"],
+                return_contributions=final_result["return_contributions"],
+                risk_contributions=final_result["risk_contributions"],
+            )
         plot_done = True
 
     return final_result
