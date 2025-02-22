@@ -83,10 +83,10 @@ class OUHeatPotential:
     ) -> pd.DataFrame:
         """
         Generate trading signals using a stateful loop.
-        A BUY signal is generated when the deviation is below the stop_loss threshold.
-        A SELL signal is generated when the deviation exceeds the take_profit threshold.
-        On a SELL day, both the entry price (from the prior BUY) and the exit price are recorded.
-        For days with no change, we mark the state as "NO_SIGNAL" if not in position, or persist "BUY" if active.
+        A BUY signal is generated only when entering a new position.
+        A SELL signal is generated only when exiting a position.
+        Otherwise, "NO_SIGNAL" is used to avoid signal propagation.
+        The very first day is always neutral (NO_SIGNAL).
 
         Args:
             stop_loss (Optional[float]): Lower deviation threshold to enter a long position.
@@ -111,6 +111,11 @@ class OUHeatPotential:
         for idx, date in enumerate(self.prices.index):
             price = self.prices.iloc[idx]
             dev = deviations.iloc[idx]
+            # Always mark the first day as neutral
+            if idx == 0:
+                signals.loc[date, "Position"] = "NO_SIGNAL"
+                continue
+
             if not in_position:
                 if dev < stop_loss:
                     in_position = True
@@ -120,14 +125,15 @@ class OUHeatPotential:
                 else:
                     signals.loc[date, "Position"] = "NO_SIGNAL"
             else:
-                # While in a position, persist the BUY signal until exit
-                signals.loc[date, "Position"] = "BUY"
-                signals.loc[date, "Entry Price"] = entry_price
+                # While holding a position, remain neutral unless exit is triggered
+                signals.loc[date, "Position"] = "NO_SIGNAL"
                 if dev > take_profit:
                     signals.loc[date, "Position"] = "SELL"
+                    signals.loc[date, "Entry Price"] = entry_price
                     signals.loc[date, "Exit Price"] = price
                     in_position = False
                     entry_price = None
+
         return signals
 
     def simulate_strategy(self, signals):

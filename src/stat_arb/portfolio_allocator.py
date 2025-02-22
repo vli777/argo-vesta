@@ -23,20 +23,20 @@ class PortfolioAllocator:
         individual_returns: dict,
         multi_asset_returns: pd.Series,
         hedge_ratios: dict,
-        individual_signals: dict,  # e.g., {"BKNG": "BUY", "XLY": "SELL", ...}
+        individual_signals: dict,
     ) -> pd.Series:
         """
         Computes the final portfolio allocation by combining individual strategy signals
         with basket signals. The basket allocation is constructed by distributing exposure
-        via hedge ratios and then refining it with a basket signal derived from the multi-asset
-        returns. The individual signals (e.g., "BUY" or "SELL") are then used to protect the
-        baseline optimized weights: tickers with a SELL signal are scaled down.
+        via hedge ratios and refining it with a basket signal derived from multi-asset returns.
+        The individual signals are used to adjust the baseline optimized weights continuously:
+        the multiplier is determined by how far the current deviation is from the threshold relative to σ.
 
         Args:
             individual_returns (dict): Dictionary of per-ticker strategy returns.
             multi_asset_returns (pd.Series): Multi-asset reversion returns (used as the basket signal).
             hedge_ratios (dict): Hedge ratios from the basket signal.
-            individual_signals (dict): Current signal for each ticker (e.g., "BUY", "SELL", or "NO_SIGNAL").
+            individual_signals (dict): For each ticker, a dict with keys: "signal", "current_deviation", "stop_loss", "take_profit", "sigma".
 
         Returns:
             pd.Series: Final portfolio weights.
@@ -58,18 +58,34 @@ class PortfolioAllocator:
             w_basket = w_basket / w_basket.sum()
 
         # --- Incorporate basket signal from multi-asset returns ---
-        # For instance, using the most recent basket return passed through tanh:
         basket_signal = multi_asset_returns.iloc[-1]
         basket_scale = np.tanh(basket_signal)
         refined_basket = basket_scale * w_basket
 
-        # --- Adjust allocations based on individual signals ---
-        # If a ticker has a SELL signal, we set its signal factor to 0; otherwise, 1.
-        signal_factor = {
-            ticker: 0 if individual_signals.get(ticker, "NO_SIGNAL") == "SELL" else 1
-            for ticker in optimal_indiv.index
+        # --- Compute continuous adjustment multipliers based on individual signals ---
+        def compute_multiplier(sig_info):
+            # For BUY: if current_deviation < stop_loss, multiplier = 1 + (stop_loss - d)/sigma.
+            # For SELL: if current_deviation > take_profit, multiplier = 1 - (d - take_profit)/sigma.
+            # For NO_SIGNAL, multiplier = 1.
+            d = sig_info["current_deviation"]
+            sigma = sig_info["sigma"]
+            if sig_info["signal"] == "BUY":
+                multiplier = 1 + (sig_info["stop_loss"] - d) / sigma
+            elif sig_info["signal"] == "SELL":
+                multiplier = 1 - (d - sig_info["take_profit"]) / sigma
+            else:
+                multiplier = 1.0
+            # Optionally clip multiplier to a range:
+            multiplier = max(0.5, min(1.5, multiplier))
+            return multiplier
+
+        signal_factors = {
+            ticker: compute_multiplier(info)
+            for ticker, info in individual_signals.items()
         }
-        signal_factor_series = pd.Series(signal_factor)
+        signal_factor_series = pd.Series(signal_factors)
+
+        # --- Adjust baseline allocations using these multipliers ---
         adjusted_indiv = optimal_indiv * signal_factor_series
         adjusted_basket = refined_basket * signal_factor_series
 
