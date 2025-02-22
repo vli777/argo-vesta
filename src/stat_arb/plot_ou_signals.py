@@ -50,11 +50,14 @@ def plot_all_ticker_signals(
         buy_signals = signals[signals["Position"] == "BUY"]
         sell_signals = signals[signals["Position"] == "SELL"]
 
+        # Align the price series with the signal dates
+        aligned_price_series = price_series.reindex(signals.index, method="ffill")
+
         # Plot price line
         fig.add_trace(
             go.Scatter(
-                x=price_series.index,
-                y=price_series.values,
+                x=aligned_price_series.index,
+                y=aligned_price_series.values,
                 mode="lines",
                 name=f"{ticker} Price",
                 line=dict(width=2),
@@ -67,7 +70,7 @@ def plot_all_ticker_signals(
         fig.add_trace(
             go.Scatter(
                 x=buy_signals.index,
-                y=price_series.loc[buy_signals.index],
+                y=aligned_price_series.loc[buy_signals.index],
                 mode="markers",
                 name=f"{ticker} Buy",
                 marker=dict(symbol="triangle-up", color="green", size=8),
@@ -80,7 +83,7 @@ def plot_all_ticker_signals(
         fig.add_trace(
             go.Scatter(
                 x=sell_signals.index,
-                y=price_series.loc[sell_signals.index],
+                y=aligned_price_series.loc[sell_signals.index],
                 mode="markers",
                 name=f"{ticker} Sell",
                 marker=dict(symbol="triangle-down", color="red", size=8),

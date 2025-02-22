@@ -144,7 +144,7 @@ class OUHeatPotential:
             signals (pd.DataFrame): Trading signals.
 
         Returns:
-            tuple: (trade returns array, metrics dictionary)
+            tuple: (trade returns series, metrics dictionary)
         """
         trades = signals.dropna(subset=["Entry Price", "Exit Price"])
         if trades.empty:
@@ -163,7 +163,9 @@ class OUHeatPotential:
         entry_prices = np.array(trades["Entry Price"].values, dtype=float)
         exit_prices = np.array(trades["Exit Price"].values, dtype=float)
         returns = np.log(exit_prices / entry_prices)
-        returns_series = pd.Series(returns).reset_index(drop=True)
+        
+        # Create a Series using the trades' index
+        returns_series = pd.Series(returns, index=trades.index)
 
         win_rate = (returns > 0).mean()
         sharpe_r = sharpe_ratio(
@@ -174,7 +176,8 @@ class OUHeatPotential:
             "Sharpe Ratio": sharpe_r,
             "Win Rate": win_rate,
         }
-        return returns, metrics
+        return returns_series, metrics
+
 
     def composite_score(self, metrics):
         """
@@ -244,44 +247,4 @@ class OUHeatPotential:
         logger.info(f"Optimized Kelly & Risk Parity: {best_params}")
         return best_params
 
-    def plot_signals(self, title: str = "OU Process Trading Signals"):
-        """
-        Create an interactive Plotly chart that overlays buy/sell signals on the price series.
-
-        Args:
-            title (str): Title of the plot.
-        """
-        signals, _ = self.run_strategy()
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=self.prices.index, y=self.prices.values, mode="lines", name="Price"
-            )
-        )
-        buy_signals = signals[signals["Position"] == "BUY"]
-        sell_signals = signals[signals["Position"] == "SELL"]
-        fig.add_trace(
-            go.Scatter(
-                x=buy_signals.index,
-                y=self.prices.loc[buy_signals.index],
-                mode="markers",
-                name="Buy",
-                marker=dict(symbol="triangle-up", color="green", size=10),
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=sell_signals.index,
-                y=self.prices.loc[sell_signals.index],
-                mode="markers",
-                name="Sell",
-                marker=dict(symbol="triangle-down", color="red", size=10),
-            )
-        )
-        fig.update_layout(
-            title=title,
-            xaxis_title="Time",
-            yaxis_title="Price",
-            template="plotly_white",
-        )
-        fig.show()
+   
