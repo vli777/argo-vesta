@@ -66,44 +66,47 @@ def plot_multi_asset_signals(
     fig.show()
 
 
-def plot_multi_asset_cumulative_returns(
-    strategy_returns,
-    benchmark_returns,
-    title="Cumulative Returns: Mean Reversion Strategy vs. Baseline Allocation",
+def plot_baseline_vs_reversion_returns(
+    baseline_returns,
+    adjusted_returns,
+    title="Baseline vs. Reversion Adjusted Cumulative Returns",
 ):
     """
-    Plots cumulative returns for the multi-asset strategy vs. benchmark with improved readability.
+    Plots cumulative returns for the baseline allocation and the reversion adjusted allocation.
 
     Args:
-        strategy_returns (pd.Series): Cumulative returns of the strategy.
-        benchmark_returns (pd.Series): Cumulative returns of the benchmark.
-        title (str): Chart title.
+        baseline_returns (pd.Series): Cumulative returns from the baseline (optimized) allocation.
+        adjusted_returns (pd.Series): Cumulative returns from the reversion adjusted allocation.
+        title (str): Title of the plot.
+
+    Returns:
+        None (displays an interactive Plotly plot).
     """
     fig = go.Figure()
 
-    # Strategy plot (solid line)
+    # Baseline cumulative returns (dashed gray line)
     fig.add_trace(
         go.Scatter(
-            x=strategy_returns.index,
-            y=strategy_returns.values,
+            x=baseline_returns.index,
+            y=baseline_returns.values,
             mode="lines",
-            name="Multi-Asset Strategy",
-            line=dict(color="blue", width=2),
-        )
-    )
-
-    # Benchmark plot (dashed line)
-    fig.add_trace(
-        go.Scatter(
-            x=benchmark_returns.index,
-            y=benchmark_returns.values,
-            mode="lines",
-            name="Benchmark",
+            name="Baseline Allocation",
             line=dict(color="gray", width=2, dash="dash"),
         )
     )
 
-    # Update layout
+    # Reversion adjusted cumulative returns (solid blue line)
+    fig.add_trace(
+        go.Scatter(
+            x=adjusted_returns.index,
+            y=adjusted_returns.values,
+            mode="lines",
+            name="Reversion Adjusted Allocation",
+            line=dict(color="blue", width=2),
+        )
+    )
+
+    # Customize layout
     fig.update_layout(
         title=title,
         xaxis_title="Time",
@@ -111,8 +114,6 @@ def plot_multi_asset_cumulative_returns(
         template="plotly_white",
         hovermode="x unified",
         legend=dict(x=0, y=1.1, orientation="h"),
-        xaxis=dict(showgrid=True, tickangle=-45),
-        yaxis=dict(showgrid=True, tickformat=".4f"),  # Limit decimals to 4 places
     )
 
     fig.show()

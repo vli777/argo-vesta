@@ -5,8 +5,12 @@ import pandas as pd
 from reversion.mean_reversion import apply_mean_reversion
 from result_output import build_final_result_dict, compute_performance_results
 from config import Config
+from stat_arb.plot_ou_signals import plot_all_ticker_signals
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
-from stat_arb.multi_asset_plots import plot_multi_asset_signals
+from stat_arb.multi_asset_plots import (
+    plot_baseline_vs_reversion_returns,
+    plot_multi_asset_signals,
+)
 from stat_arb.multi_asset_reversion import MultiAssetReversion
 from stat_arb.portfolio_allocator import PortfolioAllocator
 from stat_arb.single_asset_reversion import OUHeatPotential
@@ -92,6 +96,7 @@ def apply_ou_reversion(
     result dictionary.
     """
     logger.info("\nApplying OU-based mean reversion...")
+    
     # --- Prepare individual OU strategies for each ticker
     ou_strategies = {
         ticker: OUHeatPotential(dfs["data"][ticker], returns_df[ticker])
@@ -104,11 +109,6 @@ def apply_ou_reversion(
     ou_results = {
         ticker: ou.simulate_strategy(ou_signals[ticker])
         for ticker, ou in ou_strategies.items()
-    }
-
-    latest_ou_signals = {
-        ticker: signals["Position"].ffill().iloc[-1]  # ffill to handle NaN signals
-        for ticker, signals in ou_signals.items()
     }
 
     individual_returns = {
@@ -145,12 +145,39 @@ def apply_ou_reversion(
     multi_asset_returns = multi_asset_returns.fillna(0)
 
     if config.plot_reversion:
-
+        plot_all_ticker_signals(
+            price_data=dfs["data"],
+            signal_data=ou_signals,
+            title="Mean Reversion Trading Signals Across All Tickers",
+        )
         plot_multi_asset_signals(
             spread_series=multi_asset_strategy.spread_series,
             signals=multi_asset_results["Signals"],
             title="Multi-Asset Mean Reversion Trading Signals",
         )
+
+    latest_ou_signals = {}
+    for ticker, ou in ou_strategies.items():
+        signals = ou.generate_trading_signals()  # your DataFrame of signals
+        # Get the last non-"NO_SIGNAL" row if available, otherwise default to neutral:
+        non_neutral = signals[signals["Position"] != "NO_SIGNAL"]
+        if not non_neutral.empty:
+            last_signal = non_neutral.iloc[-1]["Position"]
+        else:
+            last_signal = "NO_SIGNAL"
+        # Compute current deviation from the most recent price:
+        current_price = ou.prices.iloc[-1]
+        current_deviation = np.log(current_price) - ou.mu
+        # Also get the optimal thresholds for this asset:
+        stop_loss, take_profit = ou.calculate_optimal_bounds()
+        # Save a richer dictionary per ticker:
+        latest_ou_signals[ticker] = {
+            "signal": last_signal,
+            "current_deviation": current_deviation,
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "sigma": ou.sigma,
+        }
 
     portfolio_allocator = PortfolioAllocator()
     reversion_allocations = portfolio_allocator.compute_allocations(
@@ -191,6 +218,32 @@ def apply_ou_reversion(
         sorted_time_periods=sorted_time_periods,
         config=config,
     )
+
+    if config.plot_reversion:
+        # Compute performance with the baseline (non-adjusted) allocations
+        (
+            baseline_daily_returns,
+            baseline_cumulative_returns,
+            baseline_boxplot_stats,
+            baseline_return_contributions_pct,
+            baseline_risk_contributions_pct,
+            baseline_valid_symbols,
+        ) = compute_performance_results(
+            data=dfs["data"],
+            start_date=str(dfs["start"]),
+            end_date=str(dfs["end"]),
+            allocation_weights=normalized_avg_weights,  # Baseline allocation
+            sorted_symbols=sorted(normalized_avg_weights.keys()),
+            combined_input_files=combined_input_files,
+            combined_models=combined_models,
+            sorted_time_periods=sorted_time_periods,
+            config=config,
+        )
+
+        plot_baseline_vs_reversion_returns(
+            baseline_returns=baseline_cumulative_returns,
+            adjusted_returns=adjusted_cumulative_returns,
+        )
 
     return build_final_result_dict(
         start_date=str(dfs["start"]),
