@@ -100,13 +100,16 @@ def apply_ou_reversion(
     ou_signals = {
         ticker: ou.generate_trading_signals() for ticker, ou in ou_strategies.items()
     }
-    print(ou_signals)
+
     ou_results = {
         ticker: ou.simulate_strategy(ou_signals[ticker])
         for ticker, ou in ou_strategies.items()
     }
-    if config.plot_reversion:
-        ou_strategies.plot_signals()
+
+    latest_ou_signals = {
+        ticker: signals["Position"].ffill().iloc[-1]  # ffill to handle NaN signals
+        for ticker, signals in ou_signals.items()
+    }
 
     individual_returns = {
         ticker: pd.Series(result[0]).reset_index(drop=True)
@@ -142,6 +145,7 @@ def apply_ou_reversion(
     multi_asset_returns = multi_asset_returns.fillna(0)
 
     if config.plot_reversion:
+
         plot_multi_asset_signals(
             spread_series=multi_asset_strategy.spread_series,
             signals=multi_asset_results["Signals"],
@@ -153,6 +157,7 @@ def apply_ou_reversion(
         individual_returns,
         multi_asset_returns,
         hedge_ratios=multi_asset_results["Hedge Ratios"],
+        individual_signals=latest_ou_signals,
     )
     normalized_reversion_allocations = normalize_weights(reversion_allocations)
     stat_arb_adjusted_allocation = apply_adaptive_weighting(
