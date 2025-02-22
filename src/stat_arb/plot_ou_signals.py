@@ -6,7 +6,7 @@ import math
 def plot_all_ticker_signals(
     price_data: dict,
     signal_data: dict,
-    max_cols: int = 5,  # Limit columns to prevent overcrowding
+    max_cols: int = 5,
     title: str = "Mean Reversion Trading Signals for All Tickers",
 ):
     """
@@ -25,8 +25,8 @@ def plot_all_ticker_signals(
     rows = math.ceil(num_tickers / cols)
 
     # Automatically adjust horizontal and vertical spacing based on grid size
-    horizontal_spacing = min(0.04, 1 / (cols * 1.2))
-    vertical_spacing = min(0.04, 1 / (rows * 1.2))
+    horizontal_spacing = min(0.05, 1 / (cols * 1.2))
+    vertical_spacing = min(0.05, 1 / (rows * 1.2))
 
     # Create a subplot grid
     fig = make_subplots(
@@ -47,8 +47,9 @@ def plot_all_ticker_signals(
         if signals is None:
             continue
 
-        buy_signals = signals[signals["Position"] == "BUY"]
-        sell_signals = signals[signals["Position"] == "SELL"]
+        # Convert signal positions to numeric: 1 for BUY, -1 for SELL, 0 for NO_SIGNAL
+        buy_signals = signals[signals["Position"] == 1]
+        sell_signals = signals[signals["Position"] == -1]
 
         # Align the price series with the signal dates
         aligned_price_series = price_series.reindex(signals.index, method="ffill")
@@ -60,44 +61,54 @@ def plot_all_ticker_signals(
                 y=aligned_price_series.values,
                 mode="lines",
                 name=f"{ticker} Price",
-                line=dict(width=2),
+                line=dict(width=2, color="blue"),
+                showlegend=(i == 0),  # Only show in the first plot to avoid repetition
             ),
             row=row,
             col=col,
         )
 
         # Plot buy signals
-        fig.add_trace(
-            go.Scatter(
-                x=buy_signals.index,
-                y=aligned_price_series.loc[buy_signals.index],
-                mode="markers",
-                name=f"{ticker} Buy",
-                marker=dict(symbol="triangle-up", color="green", size=8),
-            ),
-            row=row,
-            col=col,
-        )
+        if not buy_signals.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=buy_signals.index,
+                    y=aligned_price_series.loc[buy_signals.index],
+                    mode="markers",
+                    name="Buy Signal",
+                    marker=dict(symbol="triangle-up", color="green", size=8),
+                    hovertemplate=f"{ticker} Buy<br>Price: %{{y:.2f}}<br>Date: %{{x}}",
+                    showlegend=(i == 0),
+                ),
+                row=row,
+                col=col,
+            )
 
         # Plot sell signals
-        fig.add_trace(
-            go.Scatter(
-                x=sell_signals.index,
-                y=aligned_price_series.loc[sell_signals.index],
-                mode="markers",
-                name=f"{ticker} Sell",
-                marker=dict(symbol="triangle-down", color="red", size=8),
-            ),
-            row=row,
-            col=col,
-        )
+        if not sell_signals.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=sell_signals.index,
+                    y=aligned_price_series.loc[sell_signals.index],
+                    mode="markers",
+                    name="Sell Signal",
+                    marker=dict(symbol="triangle-down", color="red", size=8),
+                    hovertemplate=f"{ticker} Sell<br>Price: %{{y:.2f}}<br>Date: %{{x}}",
+                    showlegend=(i == 0),
+                ),
+                row=row,
+                col=col,
+            )
 
     # Update layout
     fig.update_layout(
         title=title,
         height=160 * rows,
         width=420 * cols,
-        showlegend=False,
+        showlegend=True,
         template="plotly_white",
+        hovermode="x unified",
+        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.5)"),
     )
+
     fig.show()
