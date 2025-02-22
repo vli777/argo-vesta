@@ -444,8 +444,8 @@ def convert_to_yfinance_format(data: dict, symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(candles)
-    # Normalize datetime to midnight to avoid duplicate index errors
-    df["datetime"] = pd.to_datetime(df["datetime"], unit="ms").dt.normalize()
+    df["datetime"] = pd.to_datetime(df["datetime"], unit="ms")
+    df["datetime"] = df["datetime"].dt.floor("D")
     df.set_index("datetime", inplace=True)
 
     # Create a multi-index DataFrame similar to yfinance output
@@ -461,7 +461,7 @@ def convert_to_yfinance_format(data: dict, symbol: str) -> pd.DataFrame:
     multi_index_df = pd.DataFrame(multi_index_data)
     multi_index_df.index.name = "Date"
     multi_index_df.columns = pd.MultiIndex.from_tuples(multi_index_df.columns)
-    
+
     if len(multi_index_df.columns.levels[0]) == 1:
         # Drop the symbol level, leaving single-level columns
         multi_index_df.columns = multi_index_df.columns.droplevel(0)
