@@ -175,11 +175,11 @@ def apply_ou_reversion(
             signal_data=ou_signals,
             title="Mean Reversion Trading Signals Across All Tickers",
         )
-        plot_multi_asset_signals(
-            price_series=price_series,
-            multi_asset_signals=multi_asset_results["Signals"],
-            title="Multi-Asset Mean Reversion Trading Signals",
-        )
+        # plot_multi_asset_signals(
+        #     price_series=price_series,
+        #     multi_asset_signals=multi_asset_results["Signals"],
+        #     title="Multi-Asset Mean Reversion Trading Signals",
+        # )
 
     latest_ou_signals = {}
     for ticker, ou in ou_strategies.items():

@@ -5,8 +5,8 @@ import optuna
 from scipy.optimize import minimize
 from sklearn.cluster import KMeans
 import torch
-
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
+
 from utils import logger
 from stat_arb.graph_autoencoder import construct_graph, train_gae
 from utils.performance_metrics import sharpe_ratio
@@ -283,38 +283,57 @@ class MultiAssetReversion:
         return result.x
 
     def generate_trading_signals(
-        self, stop_loss=None, take_profit=None
+        self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None
     ) -> pd.DataFrame:
         """
         Generate trading signals using a stateful loop.
-        A BUY signal is 1, a SELL signal is -1, and 0 indicates NO_SIGNAL.
+        Numeric signals: 1 for BUY, -1 for SELL, and 0 indicates NO_SIGNAL.
         The very first day is always neutral (0).
+
+        This version adds a reset condition: if an open position's deviation returns to "normal"
+        (within a threshold epsilon of 0), the position is closed.
+
+        Args:
+            stop_loss (Optional[float]): Lower deviation threshold to enter a long position.
+            take_profit (Optional[float]): Upper deviation threshold to exit the position.
+
+        Returns:
+            pd.DataFrame: Signals with "Position", "Ticker", "Entry Price", and "Exit Price".
         """
         if stop_loss is None or take_profit is None:
             stop_loss, take_profit = self.calculate_optimal_bounds()
 
-        # Compute deviations from the mean
+        # Compute deviations from the mean (or μ) using log prices (or your spread)
         deviations = self.spread_series - self.spread_series.mean()
+
+        # Define epsilon as 10% of the spread's standard deviation to indicate "normal" range.
+        epsilon = 0.1 * self.spread_series.std()
+
         signals = pd.DataFrame(
             index=self.spread_series.index,
             columns=["Position", "Ticker", "Entry Price", "Exit Price"],
         )
+        signals[:] = np.nan
 
-        # Set all tickers in one string for the multi-asset signal.
+        # List all tickers in one string for the multi-asset signal.
         signals["Ticker"] = ", ".join(self.prices_df.columns)
         signals["Position"] = 0  # Default to NO_SIGNAL (0).
         signals["Entry Price"] = np.nan
         signals["Exit Price"] = np.nan
 
-        position = 0  # 0 = no position, 1 = long, -1 = short
+        position = 0  # 0 = no position, 1 = long, -1 = short.
         entry_price = np.nan
 
         for t in signals.index:
             dev = deviations.loc[t]
             current_price = self.spread_series.loc[t]
 
+            if t == signals.index[0]:
+                signals.loc[t, "Position"] = 0
+                continue
+
             if position == 0:
-                # No current position, so check for entry signals.
+                # No current position; check entry conditions.
                 if dev < stop_loss:
                     position = 1
                     entry_price = current_price
@@ -324,29 +343,29 @@ class MultiAssetReversion:
                 elif dev > take_profit:
                     position = -1
                     entry_price = current_price
-                    signals.loc[t, "Position"] = -1  # SELL
+                    signals.loc[t, "Position"] = -1  # SELL (for short)
                     signals.loc[t, "Entry Price"] = entry_price
                     signals.loc[t, "Exit Price"] = current_price
                 else:
                     signals.loc[t, "Position"] = 0  # NO_SIGNAL
             elif position == 1:
                 # Long position is open.
-                if dev >= 0:
-                    # Exit condition met for a long.
-                    signals.loc[t, "Position"] = 0  # NO_SIGNAL
+                # If deviation rises into the normal range, exit the long.
+                if dev >= -epsilon:
+                    signals.loc[t, "Position"] = 0  # Exit long.
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
                     entry_price = np.nan
                 else:
-                    # Still in long position
+                    # Remain in long; propagate active status if desired.
                     signals.loc[t, "Position"] = 1
                     signals.loc[t, "Entry Price"] = entry_price
                     signals.loc[t, "Exit Price"] = current_price
             elif position == -1:
                 # Short position is open.
-                if dev <= 0:
-                    # Exit condition met for a short.
-                    signals.loc[t, "Position"] = 0  # NO_SIGNAL
+                # If deviation falls into the normal range, exit the short.
+                if dev <= epsilon:
+                    signals.loc[t, "Position"] = 0  # Exit short.
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
                     entry_price = np.nan
@@ -355,7 +374,7 @@ class MultiAssetReversion:
                     signals.loc[t, "Entry Price"] = entry_price
                     signals.loc[t, "Exit Price"] = current_price
 
-        # Forward-fill entry/exit prices for consistency
+        # Forward-fill entry/exit prices for consistency.
         signals["Entry Price"] = signals["Entry Price"].ffill()
         signals["Exit Price"] = signals["Exit Price"].ffill()
 
