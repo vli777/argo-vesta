@@ -77,16 +77,12 @@ class OUHeatPotential:
         return opt_result.x
 
     def generate_trading_signals(
-        self,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None,
+        self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None
     ) -> pd.DataFrame:
         """
         Generate trading signals using a stateful loop.
-        A BUY signal is generated only when entering a new position.
-        A SELL signal is generated only when exiting a position.
-        Otherwise, "NO_SIGNAL" is used to avoid signal propagation.
-        The very first day is always neutral (NO_SIGNAL).
+        - 1 for BUY, -1 for SELL, and 0 for NO_SIGNAL.
+        - The very first day is always neutral (0).
 
         Args:
             stop_loss (Optional[float]): Lower deviation threshold to enter a long position.
@@ -95,11 +91,15 @@ class OUHeatPotential:
         Returns:
             pd.DataFrame: Signals with "Position", "Entry Price", and "Exit Price".
         """
+        # Compute optimal bounds if not provided
         if stop_loss is None or take_profit is None:
             stop_loss, take_profit = self.calculate_optimal_bounds()
 
+        # Compute log prices and deviations from the mean (or μ)
         log_prices = np.log(self.prices)
         deviations = log_prices - self.mu
+
+        # Initialize signals DataFrame
         signals = pd.DataFrame(
             index=self.prices.index, columns=["Position", "Entry Price", "Exit Price"]
         )
@@ -111,24 +111,27 @@ class OUHeatPotential:
         for idx, date in enumerate(self.prices.index):
             price = self.prices.iloc[idx]
             dev = deviations.iloc[idx]
-            # Always mark the first day as neutral
+
+            # Always mark the first day as neutral (0)
             if idx == 0:
-                signals.loc[date, "Position"] = "NO_SIGNAL"
+                signals.loc[date, "Position"] = 0
                 continue
 
             if not in_position:
+                # Look for entry: if deviation is sufficiently low, enter long.
                 if dev < stop_loss:
                     in_position = True
                     entry_price = price
-                    signals.loc[date, "Position"] = "BUY"
+                    signals.loc[date, "Position"] = 1  # BUY
                     signals.loc[date, "Entry Price"] = price
                 else:
-                    signals.loc[date, "Position"] = "NO_SIGNAL"
+                    signals.loc[date, "Position"] = 0  # NO_SIGNAL
             else:
-                # While holding a position, remain neutral unless exit is triggered
-                signals.loc[date, "Position"] = "NO_SIGNAL"
+                # When in position, by default mark as neutral.
+                signals.loc[date, "Position"] = 0  # NO_SIGNAL
+                # Check exit condition: if deviation exceeds take_profit, exit.
                 if dev > take_profit:
-                    signals.loc[date, "Position"] = "SELL"
+                    signals.loc[date, "Position"] = -1  # SELL
                     signals.loc[date, "Entry Price"] = entry_price
                     signals.loc[date, "Exit Price"] = price
                     in_position = False
@@ -136,15 +139,10 @@ class OUHeatPotential:
 
         return signals
 
-    def simulate_strategy(self, signals):
+    def simulate_strategy(self, signals: pd.DataFrame) -> tuple:
         """
-        Simulate strategy performance.
-
-        Args:
-            signals (pd.DataFrame): Trading signals.
-
-        Returns:
-            tuple: (trade returns series, metrics dictionary)
+        Simulate strategy performance using numeric signals.
+        - 1 for BUY, -1 for SELL, and 0 for NO_SIGNAL.
         """
         trades = signals.dropna(subset=["Entry Price", "Exit Price"])
         if trades.empty:
@@ -154,8 +152,6 @@ class OUHeatPotential:
                 "Total Trades": 0,
                 "Sharpe Ratio": 0,
                 "Win Rate": 0,
-                "Optimized Kelly Fraction": 0,
-                "Risk Parity Allocation": {},
             }
             return zero_returns, metrics
 
@@ -163,10 +159,11 @@ class OUHeatPotential:
         entry_prices = np.array(trades["Entry Price"].values, dtype=float)
         exit_prices = np.array(trades["Exit Price"].values, dtype=float)
         returns = np.log(exit_prices / entry_prices)
-        
+
         # Create a Series using the trades' index
         returns_series = pd.Series(returns, index=trades.index)
 
+        # Calculate performance metrics
         win_rate = (returns > 0).mean()
         sharpe_r = sharpe_ratio(
             returns_series, entries_per_year=252, risk_free_rate=0.0
@@ -177,7 +174,6 @@ class OUHeatPotential:
             "Win Rate": win_rate,
         }
         return returns_series, metrics
-
 
     def composite_score(self, metrics):
         """
@@ -246,5 +242,3 @@ class OUHeatPotential:
         best_params = study.best_params
         logger.info(f"Optimized Kelly & Risk Parity: {best_params}")
         return best_params
-
-   

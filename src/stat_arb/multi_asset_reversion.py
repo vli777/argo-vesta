@@ -282,20 +282,31 @@ class MultiAssetReversion:
         result = minimize(objective, x0=[-0.5, 0.5], bounds=bounds)
         return result.x
 
-    def generate_trading_signals(self, stop_loss=None, take_profit=None):
+    def generate_trading_signals(
+        self, stop_loss=None, take_profit=None
+    ) -> pd.DataFrame:
+        """
+        Generate trading signals using a stateful loop.
+        A BUY signal is 1, a SELL signal is -1, and 0 indicates NO_SIGNAL.
+        The very first day is always neutral (0).
+        """
         if stop_loss is None or take_profit is None:
             stop_loss, take_profit = self.calculate_optimal_bounds()
+
+        # Compute deviations from the mean
         deviations = self.spread_series - self.spread_series.mean()
         signals = pd.DataFrame(
             index=self.spread_series.index,
             columns=["Position", "Ticker", "Entry Price", "Exit Price"],
         )
+
+        # Set all tickers in one string for the multi-asset signal.
         signals["Ticker"] = ", ".join(self.prices_df.columns)
-        signals["Position"] = 0
+        signals["Position"] = 0  # Default to NO_SIGNAL (0).
         signals["Entry Price"] = np.nan
         signals["Exit Price"] = np.nan
 
-        position = 0
+        position = 0  # 0 = no position, 1 = long, -1 = short
         entry_price = np.nan
 
         for t in signals.index:
@@ -307,71 +318,70 @@ class MultiAssetReversion:
                 if dev < stop_loss:
                     position = 1
                     entry_price = current_price
-                    signals.loc[t, "Position"] = 1
+                    signals.loc[t, "Position"] = 1  # BUY
                     signals.loc[t, "Entry Price"] = entry_price
-                    signals.loc[t, "Exit Price"] = (
-                        current_price  # set initial exit price
-                    )
+                    signals.loc[t, "Exit Price"] = current_price
                 elif dev > take_profit:
                     position = -1
                     entry_price = current_price
-                    signals.loc[t, "Position"] = -1
+                    signals.loc[t, "Position"] = -1  # SELL
                     signals.loc[t, "Entry Price"] = entry_price
-                    signals.loc[t, "Exit Price"] = (
-                        current_price  # set initial exit price
-                    )
+                    signals.loc[t, "Exit Price"] = current_price
                 else:
-                    signals.loc[t, "Position"] = 0
-                    # Leave Entry and Exit prices as NaN when no position.
+                    signals.loc[t, "Position"] = 0  # NO_SIGNAL
             elif position == 1:
                 # Long position is open.
                 if dev >= 0:
                     # Exit condition met for a long.
-                    signals.loc[t, "Position"] = 0
+                    signals.loc[t, "Position"] = 0  # NO_SIGNAL
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
                     entry_price = np.nan
                 else:
+                    # Still in long position
                     signals.loc[t, "Position"] = 1
-                    signals.loc[t, "Entry Price"] = (
-                        entry_price  # keep the original entry price
-                    )
-                    signals.loc[t, "Exit Price"] = (
-                        current_price  # update exit price continuously
-                    )
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = current_price
             elif position == -1:
                 # Short position is open.
                 if dev <= 0:
                     # Exit condition met for a short.
-                    signals.loc[t, "Position"] = 0
+                    signals.loc[t, "Position"] = 0  # NO_SIGNAL
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
                     entry_price = np.nan
                 else:
                     signals.loc[t, "Position"] = -1
-                    signals.loc[t, "Entry Price"] = (
-                        entry_price  # keep the original entry price
-                    )
-                    signals.loc[t, "Exit Price"] = (
-                        current_price  # update exit price continuously
-                    )
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = current_price
 
+        # Forward-fill entry/exit prices for consistency
         signals["Entry Price"] = signals["Entry Price"].ffill()
         signals["Exit Price"] = signals["Exit Price"].ffill()
 
         return signals
 
-    def simulate_strategy(self, signals):
-        returns = signals["Position"].shift(1) * self.spread_series.pct_change()
-        returns = returns.dropna()
-        s = sharpe_ratio(returns)
+    def simulate_strategy(self, signals: pd.DataFrame) -> tuple:
+        """
+        Simulate strategy performance using numeric signals.
+        - 1 for BUY, -1 for SELL, 0 for NO_SIGNAL.
+        """
+        # Calculate log returns of the spread series
+        log_returns = np.log(self.spread_series / self.spread_series.shift(1))
+
+        # Strategy returns: previous signal * current log return
+        strat_returns = signals["Position"].shift(1).fillna(0) * log_returns
+        strat_returns = strat_returns.dropna()
+
+        # Calculate performance metrics
         metrics = {
-            "Total Trades": (signals["Position"] != 0).sum(),
-            "Sharpe Ratio": s,
-            "Win Rate": (returns > 0).mean(),
-            "Avg Return": returns.mean(),
+            "Total Trades": (signals["Position"].diff().abs() > 0).sum(),
+            "Sharpe Ratio": sharpe_ratio(strat_returns),
+            "Win Rate": (strat_returns > 0).mean(),
+            "Avg Return": strat_returns.mean(),
         }
-        return returns, metrics
+
+        return strat_returns, metrics
 
     def optimize_and_trade(self):
         stop_loss, take_profit = self.calculate_optimal_bounds()
