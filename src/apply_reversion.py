@@ -8,7 +8,6 @@ from config import Config
 from stat_arb.plot_ou_signals import plot_all_ticker_signals
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
 from stat_arb.multi_asset_plots import (
-    plot_baseline_vs_reversion_returns,
     plot_multi_asset_signals,
 )
 from stat_arb.multi_asset_reversion import MultiAssetReversion
@@ -90,55 +89,81 @@ def apply_ou_reversion(
     returns_df: pd.DataFrame,
     asset_cluster_map: dict[str, int] = None,
     allow_short: bool = False,
+    use_weekly: bool = False,
 ) -> dict:
     """
     Applies OU-based (heat potential) mean reversion and returns the final
     result dictionary.
     """
     logger.info("\nApplying OU-based mean reversion...")
-    
+
+    if use_weekly:  # Resample prices to weekly to remove noise
+        data_df = dfs["data"].resample("W").last().dropna()
+        returns_df = data_df.pct_change().dropna()
+    else:
+        data_df = dfs["data"]
+
     # --- Prepare individual OU strategies for each ticker
     ou_strategies = {
-        ticker: OUHeatPotential(dfs["data"][ticker], returns_df[ticker])
-        for ticker in dfs["data"].columns
+        ticker: OUHeatPotential(data_df[ticker], returns_df[ticker])
+        for ticker in data_df.columns
     }
+
+    # Generate trading signals for each ticker
     ou_signals = {
         ticker: ou.generate_trading_signals() for ticker, ou in ou_strategies.items()
     }
 
+    # Simulate strategy performance using the generated signals
     ou_results = {
         ticker: ou.simulate_strategy(ou_signals[ticker])
         for ticker, ou in ou_strategies.items()
     }
 
+    # Extract individual returns from strategy results
     individual_returns = {
-        ticker: pd.Series(result[0]).reset_index(drop=True)
+        ticker: pd.Series(result[0], index=data_df.index).fillna(0)
         for ticker, result in ou_results.items()
     }
-    max_len = max(s.size for s in individual_returns.values())
-    individual_returns = {
-        ticker: s.reindex(range(max_len), fill_value=0)
-        for ticker, s in individual_returns.items()
-    }
+
+    # Ensure consistent length by reindexing to match the full date range of data_df
+    if use_weekly:
+        individual_returns = {
+            ticker: s.reindex(data_df.index, fill_value=0)
+            for ticker, s in individual_returns.items()
+        }
+    else:
+        max_len = max(s.size for s in individual_returns.values())
+        individual_returns = {
+            ticker: s.reindex(range(max_len), fill_value=0)
+            for ticker, s in individual_returns.items()
+        }
 
     # --- Cross-asset (multi-asset) mean reversion
     multi_asset_strategy = MultiAssetReversion(
-        prices_df=dfs["data"],
+        prices_df=data_df,
         asset_cluster_map=asset_cluster_map,
         hidden_channels=64,
         num_epochs=500,
     )
     multi_asset_results = multi_asset_strategy.optimize_and_trade()
 
+    # Get hedge ratios for each asset (ensure order matches data_df.columns)
     weights_series = pd.Series(multi_asset_results["Hedge Ratios"]).reindex(
-        dfs["data"].columns, fill_value=0
+        data_df.columns, fill_value=0
     )
     if weights_series.sum() != 0:
         weights_series /= weights_series.abs().sum()
 
+    # Compute basket returns based on the selected data frequency
     basket_returns = (
-        dfs["data"].pct_change().fillna(0).mul(weights_series, axis=1).sum(axis=1)
+        data_df.pct_change().fillna(0).mul(weights_series, axis=1).sum(axis=1)
     )
+
+    # Compute the aggregate price series for the basket
+    price_series = (data_df * weights_series).sum(axis=1)
+
+    # Compute multi-asset returns using the signals from the multi-asset strategy
     multi_asset_returns = (
         multi_asset_results["Signals"]["Position"].shift(1) * basket_returns
     )
@@ -151,8 +176,8 @@ def apply_ou_reversion(
             title="Mean Reversion Trading Signals Across All Tickers",
         )
         plot_multi_asset_signals(
-            spread_series=multi_asset_strategy.spread_series,
-            signals=multi_asset_results["Signals"],
+            price_series=price_series,
+            multi_asset_signals=multi_asset_results["Signals"],
             title="Multi-Asset Mean Reversion Trading Signals",
         )
 
@@ -218,32 +243,6 @@ def apply_ou_reversion(
         sorted_time_periods=sorted_time_periods,
         config=config,
     )
-
-    if config.plot_reversion:
-        # Compute performance with the baseline (non-adjusted) allocations
-        (
-            baseline_daily_returns,
-            baseline_cumulative_returns,
-            baseline_boxplot_stats,
-            baseline_return_contributions_pct,
-            baseline_risk_contributions_pct,
-            baseline_valid_symbols,
-        ) = compute_performance_results(
-            data=dfs["data"],
-            start_date=str(dfs["start"]),
-            end_date=str(dfs["end"]),
-            allocation_weights=normalized_avg_weights,  # Baseline allocation
-            sorted_symbols=sorted(normalized_avg_weights.keys()),
-            combined_input_files=combined_input_files,
-            combined_models=combined_models,
-            sorted_time_periods=sorted_time_periods,
-            config=config,
-        )
-
-        plot_baseline_vs_reversion_returns(
-            baseline_returns=baseline_cumulative_returns,
-            adjusted_returns=adjusted_cumulative_returns,
-        )
 
     return build_final_result_dict(
         start_date=str(dfs["start"]),
