@@ -85,6 +85,7 @@ def apply_ou_reversion(
     config: Config,
     returns_df: pd.DataFrame,
     asset_cluster_map: dict[str, int] = None,
+    allow_short: bool = False,
 ) -> dict:
     """
     Applies OU-based (heat potential) mean reversion and returns the final
@@ -99,10 +100,13 @@ def apply_ou_reversion(
     ou_signals = {
         ticker: ou.generate_trading_signals() for ticker, ou in ou_strategies.items()
     }
+    print(ou_signals)
     ou_results = {
         ticker: ou.simulate_strategy(ou_signals[ticker])
         for ticker, ou in ou_strategies.items()
     }
+    if config.plot_reversion:
+        ou_strategies.plot_signals()
 
     individual_returns = {
         ticker: pd.Series(result[0]).reset_index(drop=True)
@@ -137,7 +141,7 @@ def apply_ou_reversion(
     )
     multi_asset_returns = multi_asset_returns.fillna(0)
 
-    if config.plot_reversion and config.test_mode:
+    if config.plot_reversion:
         plot_multi_asset_signals(
             spread_series=multi_asset_strategy.spread_series,
             signals=multi_asset_results["Signals"],
@@ -156,6 +160,7 @@ def apply_ou_reversion(
         mean_reversion_weights=normalized_reversion_allocations,
         returns_df=returns_df,
         base_alpha=0.2,
+        allow_short=allow_short,
     )
     sorted_stat_arb_allocation = stat_arb_adjusted_allocation.sort_values(
         ascending=False
