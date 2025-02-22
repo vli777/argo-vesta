@@ -117,20 +117,49 @@ def get_stock_data(
     symbol: str, start_date: pd.Timestamp, end_date: pd.Timestamp
 ) -> pd.DataFrame:
     """
-    download stock price data from yahoo finance with optional write to csv
+    Download stock price data from Yahoo Finance and fall back to Charles Schwab if Yahoo fails.
     """
     logger.info(f"Downloading {symbol} {start_date} - {end_date} ...")
-    # charles schwab api uses unix timestamps instead of pd.Timestamp
+
+    # Try Yahoo Finance first
+    try:
+        symbol_df = yf.download(
+            symbol, start=start_date, end=end_date, auto_adjust=False
+        )
+        if not symbol_df.empty:
+            return symbol_df
+        # else:
+        #     logger.warning(
+        #         f"Yahoo Finance returned an empty DataFrame for {symbol}. Falling back to Schwab..."
+        #     )
+    except (HTTPError, Exception) as e:
+        logger.error(
+            f"Failed to download {symbol} data from Yahoo Finance: {e}. Falling back to Schwab..."
+        )
+
+    # Fallback to Charles Schwab API
+    # logger.info(f"Trying Charles Schwab API for {symbol} data...")
     start_timestamp = int(pd.Timestamp(start_date).timestamp() * 1000)
     end_timestamp = int(pd.Timestamp(end_date).timestamp() * 1000)
 
-    stock_data = download_schwab_data(
-        symbol=symbol, start_date=start_timestamp, end_date=end_timestamp
-    )
-    symbol_df = convert_to_yfinance_format(data=stock_data, symbol=symbol)
-    # symbol_df = yf.download(symbol, start=start_date, end=end_date, auto_adjust=False)
+    try:
+        stock_data = download_schwab_data(
+            symbol=symbol, start_date=start_timestamp, end_date=end_timestamp
+        )
+        symbol_df = convert_to_yfinance_format(data=stock_data, symbol=symbol)
+        if not symbol_df.empty:
+            # logger.info(f"Successfully downloaded {symbol} data from Charles Schwab.")
+            return symbol_df
+        # else:
+        #     logger.warning(f"Charles Schwab returned an empty DataFrame for {symbol}.")
+    except Exception as e:
+        logger.error(f"Failed to download {symbol} data from Charles Schwab: {e}")
 
-    return symbol_df
+    # If both fail, return an empty DataFrame
+    logger.error(
+        f"Failed to download {symbol} data from both Yahoo Finance and Charles Schwab."
+    )
+    return pd.DataFrame()
 
 
 def update_store(data_path, symbol, start_date, end_date):
