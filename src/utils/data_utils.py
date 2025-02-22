@@ -461,5 +461,9 @@ def convert_to_yfinance_format(data: dict, symbol: str) -> pd.DataFrame:
     multi_index_df = pd.DataFrame(multi_index_data)
     multi_index_df.index.name = "Date"
     multi_index_df.columns = pd.MultiIndex.from_tuples(multi_index_df.columns)
+    
+    if len(multi_index_df.columns.levels[0]) == 1:
+        # Drop the symbol level, leaving single-level columns
+        multi_index_df.columns = multi_index_df.columns.droplevel(0)
 
     return multi_index_df
