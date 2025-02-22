@@ -9,6 +9,7 @@ import re
 from datetime import date, datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
+from charles_schwab_dl import download_schwab_data
 from utils.date_utils import get_last_date
 from .logger import logger
 
@@ -112,12 +113,22 @@ def process_input_files(input_file_paths):
     return sorted(symbols)
 
 
-def get_stock_data(symbol, start_date, end_date):
+def get_stock_data(
+    symbol: str, start_date: pd.Timestamp, end_date: pd.Timestamp
+) -> pd.DataFrame:
     """
     download stock price data from yahoo finance with optional write to csv
     """
     logger.info(f"Downloading {symbol} {start_date} - {end_date} ...")
-    symbol_df = yf.download(symbol, start=start_date, end=end_date, auto_adjust=False)
+    # charles schwab api uses unix timestamps instead of pd.Timestamp
+    start_timestamp = int(pd.Timestamp(start_date).timestamp() * 1000)
+    end_timestamp = int(pd.Timestamp(end_date).timestamp() * 1000)
+
+    stock_data = download_schwab_data(
+        symbol=symbol, start_date=start_timestamp, end_date=end_timestamp
+    )
+    symbol_df = convert_to_yfinance_format(data=stock_data, symbol=symbol)
+    # symbol_df = yf.download(symbol, start=start_date, end=end_date, auto_adjust=False)
 
     return symbol_df
 
@@ -425,3 +436,28 @@ def download_multi_ticker_data(
         combined_data = pd.DataFrame()
 
     return combined_data
+
+
+def convert_to_yfinance_format(data: dict, symbol: str) -> pd.DataFrame:
+    candles = data.get("candles", [])
+    if not candles:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(candles)
+    df["datetime"] = pd.to_datetime(df["datetime"], unit="ms")
+    df.set_index("datetime", inplace=True)
+
+    # Create a multi-index DataFrame similar to yfinance output
+    multi_index_data = {
+        (symbol, "Open"): df["open"],
+        (symbol, "High"): df["high"],
+        (symbol, "Low"): df["low"],
+        (symbol, "Close"): df["close"],
+        (symbol, "Volume"): df["volume"],
+    }
+
+    multi_index_df = pd.DataFrame(multi_index_data)
+    multi_index_df.index.name = "Date"
+    multi_index_df.columns = pd.MultiIndex.from_tuples(multi_index_df.columns)
+
+    return multi_index_df
