@@ -111,10 +111,6 @@ def iterative_pipeline_runner(
         if isinstance(reversion_params, dict):
             plot_reversion_params(data_dict=reversion_params)
 
-        reversion_signals = reversion_cache["signals"]
-        if isinstance(reversion_signals, dict):
-            plot_reversion_signals(reversion_signals)
-
         reversion_plotted = True
 
     # Ensure plotting is only done in the final result

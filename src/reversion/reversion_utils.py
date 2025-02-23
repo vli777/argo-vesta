@@ -253,21 +253,28 @@ def adjust_allocation_with_mean_reversion(
     if isinstance(baseline_allocation, dict):
         baseline_allocation = pd.Series(baseline_allocation).astype(float)
 
-    # Apply mean reversion adjustment
+    # Align composite_signals with baseline_allocation
     composite_signals = composite_signals.reindex(
-        baseline_allocation.index, fill_value=0
+        baseline_allocation.index, fill_value=1
     )
+    # We fill with 1 (not 0) so that if a ticker is missing from signals, it's unchanged.
+
     adjusted = baseline_allocation.copy()
-    adjusted *= 1 + alpha * composite_signals
+
+    # Subtract 1, so that signal=1 => no change
+    adjusted *= 1 + alpha * (composite_signals - 1)
 
     if not allow_short:
-        adjusted = adjusted.where(adjusted >= 0, adjusted * 0.1)
-        # Normalize so that the sum of weights equals 1.
+        # Clip negative values
+        adjusted = adjusted.where(adjusted >= 0, 0)
+        # Then normalize so sum of weights = 1 (if total>0)
         total = adjusted.sum()
         if total > 0:
             adjusted /= total
-        adjusted = adjusted / total if total > 0 else baseline_allocation
+        else:
+            adjusted = baseline_allocation
     else:
+        # If shorting is allowed, we can sum absolute values, or do a different normalization
         total = adjusted.abs().sum()
         if total > 0:
             adjusted /= total
