@@ -11,6 +11,19 @@ from utils.performance_metrics import sharpe_ratio
 
 
 class SingleAssetReversion:
+    """
+    Single-Asset Mean-Reversion Strategy using an OU (Ornstein-Uhlenbeck) model.
+
+    This class implements:
+    1. OU parameter estimation (kappa, mu, sigma).
+    2. A free-boundary (stop-loss & take-profit) determination based on
+       a heat-potential approach for the OU process, as discussed in
+       standard references on the 'method of heat potentials' or 'Green’s function'
+       for the heat equation applied to hitting times / payoff functionals of
+       the OU process.
+    3. Generating trading signals and simulating strategy performance.
+    """
+
     def __init__(
         self,
         prices: pd.Series,
@@ -35,15 +48,16 @@ class SingleAssetReversion:
         self.T = T
         self.max_leverage = max_leverage
         self.kappa, self.mu, self.sigma = self.estimate_ou_parameters()
-        # Check if the asset is mean reverting (OU process must have positive kappa and sigma)
-        self.mean_reverting = self.kappa > 0 and self.sigma > 0
-        # logger.debug(
-        #     f"\nEstimated parameters: kappa={self.kappa:.4f}, mu={self.mu:.4f}, sigma={self.sigma:.4f}"
-        # )
+        self.valid_ou = self.kappa > 0 and self.sigma > 0
 
     def estimate_ou_parameters(self):
         """
         Estimate Ornstein-Uhlenbeck (OU) process parameters using OLS regression on log prices.
+
+        We assume the log-price follows an OU process:
+            dX_t = kappa*(mu - X_t) dt + sigma dW_t.
+
+        In discrete form, one can regress (X_{t+1} - X_t) on X_t to estimate kappa and mu.
 
         Returns:
             tuple: Estimated (kappa, mu, sigma).
@@ -51,15 +65,27 @@ class SingleAssetReversion:
         log_prices = np.log(self.prices)
         delta_x = log_prices.diff().dropna()
         X_t = log_prices.shift(1).dropna()
+
         # Align response variable Y_t with X_t
         Y_t = delta_x.loc[X_t.index]
+
+        # OLS fit: Y_t = alpha + beta * X_t
         beta, alpha = np.polyfit(X_t, Y_t, 1)
+
+        # From the discrete-time OU regression relationships:
+        #   kappa = -beta / dt
+        #   mu = alpha / kappa
         kappa = -beta / self.dt
         mu = alpha / kappa if kappa != 0 else 0
+
+        # Residual-based sigma estimate
         residuals = Y_t - (alpha + beta * X_t)
-        sigma = np.std(residuals) * np.sqrt(
-            2 * kappa / (1 - np.exp(-2 * kappa * self.dt))
+        sigma = (
+            np.std(residuals) * np.sqrt(2 * kappa / (1 - np.exp(-2 * kappa * self.dt)))
+            if kappa > 0
+            else 0.0
         )
+
         return kappa, mu, sigma
 
     # def calculate_optimal_bounds(self):
@@ -82,40 +108,53 @@ class SingleAssetReversion:
     @cached_property
     def calculate_optimal_bounds(self):
         """
-        Numerically solve the free-boundary problem (in natural units) for the SingleAssetReversion model.
+        We consider an OU process X(t) with drift kappa*(mu - X), and want to find optimal
+        boundaries (stop-loss and take-profit) in log-price space. The solution can be written
+        via a *heat potential* (Green’s function of the 1D heat equation) which leads to an
+        integral equation of the form:
 
-        In natural (dimensionless) units the problem is:
-            E(υ) = f(υ; b) + ∫_0^υ K(υ, s; b) E(s) ds,  0 ≤ υ ≤ Υ,
-        with the smooth-fit condition dE/dυ|_(υ=Υ) = 0.
+            E(upsilon) = f(upsilon; b) + ∫ K(upsilon, s; b) E(s) ds,   0 ≤ upsilon ≤ Upsilon,
 
-        The functions are defined as:
-            Π(υ; b) = sqrt(1 - 2*υ) * (b - θ),
-            K(υ, s; b) = 1/sqrt(2*pi) * ((Π(υ; b) - Π(s; b))/(υ-s+eps)) * exp(-((Π(υ; b) - Π(s; b))**2)/(2*(υ-s+eps))),
-            f(υ; b) = 2*pi*log((1-2*υ)/(1-2*Υ)) + 2*(Π(υ; b) + θ)*log(1-2*Υ).
+        with boundary condition (smooth-fit) dE/d(upsilon) at upsilon=Upsilon = 0.
 
-        Here, θ = self.mu and Υ = 1 - exp(-2*T_val) with T_val chosen so that Υ < 0.5.
+        Here, upsilon is a dimensionless variable (0 <= upsilon <= Upsilon < 0.5), and K is the
+        heat kernel. The unknown b* is found by ensuring the boundary condition is met.
 
-        The free-boundary in original units is then:
-            stop_loss = self.mu - b*/scale,  take_profit = self.mu + b*/scale,
-        where scale = sqrt(self.kappa)/self.sigma.
+        Once b* is found in dimensionless units, we transform back to the original price scale:
+            stop_loss = mu - b* / scale,
+            take_profit = mu + b* / scale,
+        where scale = sqrt(kappa) / sigma.
+
+        -----------------------------------------------------------------------------------------
+        Returns:
+            (stop_loss, take_profit): The optimal boundaries in original log-price scale.
         """
         theta = self.mu
-        if self.kappa > 0 and self.sigma > 0:
+        # If parameters are invalid, force scale=1 and log a warning.
+        if self.valid_ou:
             scale = np.sqrt(self.kappa) / self.sigma
         else:
-            logger.warning(
-                f"Invalid OU parameters (kappa = {self.kappa}, sigma = {self.sigma}); setting scale=1."
-            )
             scale = 1.0
+            logger.warning(
+                f"Invalid OU parameters (kappa={self.kappa}, sigma={self.sigma}); setting scale=1."
+            )
 
         eps = 1e-6
-        T_val = 0.2
-        Upsilon = 1 - np.exp(-2 * T_val)
+        # Choose a dimensionless upper bound for upsilon
+        T_val = 0.2  # for demonstration, smaller T_val => smaller domain
+        Upsilon = 1 - np.exp(
+            -2 * T_val
+        )  # must be < 0.5 for sqrt(1-2*upsilon) to be real
 
+        # Dimensionless transform for log-price deviation
+        # Pi(upsilon, b) = sqrt(1 - 2 upsilon)*(b - theta)
         def Pi(upsilon, b):
-            return np.sqrt(max(0, 1 - 2 * upsilon)) * (b - theta)
+            return np.sqrt(max(0.0, 1 - 2 * upsilon)) * (b - theta)
 
-        def K(upsilon, s, b):
+        # Heat kernel K(upsilon, s; b).
+        # The integral equation approach is akin to a convolution with the
+        # fundamental solution of the heat equation (a 'heat potential').
+        def heat_kernel(upsilon, s, b):
             denom = upsilon - s + eps
             return (
                 1.0
@@ -124,36 +163,51 @@ class SingleAssetReversion:
                 * np.exp(-((Pi(upsilon, b) - Pi(s, b)) ** 2) / (2 * denom))
             )
 
+        # Source function f(upsilon, b), representing immediate 'payoff' or cost
+        # in the integral equation.
         def f_func(upsilon, b):
             return 2 * np.pi * np.log((1 - 2 * upsilon) / (1 - 2 * Upsilon)) + 2 * (
                 Pi(upsilon, b) + theta
             ) * np.log(1 - 2 * Upsilon)
 
+        # Discretize 0..Upsilon in a non-uniform grid for numerical stability
         N = 200
         u_uniform = np.linspace(0, 1, N)
-        c = 5.0
+        c = 5.0  # exponent scale
         upsilon_grid = Upsilon * (np.exp(u_uniform * c) - 1) / (np.exp(c) - 1)
-        delta = np.diff(upsilon_grid)
 
         def solve_E(b):
+            """
+            Solve the integral equation for E(upsilon) for a fixed b using
+            a simple forward integration + trapezoidal rule for the integral.
+            """
             E = np.zeros(N)
             for i in range(N):
                 upsilon_i = upsilon_grid[i]
                 if i == 0:
+                    # Start from E(0) = f(0; b), no integral portion
                     integral = 0.0
                 else:
+                    # Numerically approximate the integral ∫_0^upsilon_i K(upsilon_i, s; b)*E(s) ds
                     s_vals = upsilon_grid[: i + 1]
                     E_vals = E[: i + 1]
-                    K_vals = np.array([K(upsilon_i, s, b) for s in s_vals])
+                    K_vals = np.array([heat_kernel(upsilon_i, s, b) for s in s_vals])
                     integral = np.trapz(K_vals * E_vals, s_vals)
                 E[i] = f_func(upsilon_i, b) + integral
             return E
 
         def free_boundary_error(b):
+            """
+            For the free-boundary problem, we enforce a smooth-fit condition at upsilon=Upsilon:
+            dE/d(upsilon)|_{upsilon=Upsilon} = 0.
+            We approximate it with a finite difference.
+            """
             E = solve_E(b)
+            # Approximate derivative near the boundary (last two points)
             dE = (E[-1] - E[-2]) / (upsilon_grid[-1] - upsilon_grid[-2] + eps)
             return np.abs(dE)
 
+        # Minimize the boundary mismatch to find b*
         res = minimize_scalar(
             free_boundary_error, bounds=(0.1, upsilon_grid[-1]), method="bounded"
         )
@@ -164,8 +218,11 @@ class SingleAssetReversion:
             b_star = 2.0
         else:
             b_star = res.x
-            logger.info(f"Optimized free-boundary in natural units: b* = {b_star}")
+            # logger.info(
+            #     f"Optimized free-boundary in dimensionless units: b* = {b_star}"
+            # )
 
+        # Map b_star back to log-price scale
         stop_loss_unscaled = theta - b_star / scale
         take_profit_unscaled = theta + b_star / scale
         return stop_loss_unscaled, take_profit_unscaled
@@ -185,8 +242,9 @@ class SingleAssetReversion:
         Returns:
             pd.DataFrame: Signals with "Position", "Entry Price", and "Exit Price".
         """
-        if not self.mean_reverting:
-            # logger.info("Asset is not mean reverting. Skipping signal generation.")
+        # Return no signals if the asset is not well described by an OU process.
+        if not self.valid_ou:
+            # logger.info("Asset does not fit the OU model well; no signals generated.")
             return pd.DataFrame(
                 index=self.prices.index,
                 columns=["Position", "Entry Price", "Exit Price"],
@@ -260,8 +318,6 @@ class SingleAssetReversion:
         entry_prices = np.array(trades["Entry Price"].values, dtype=float)
         exit_prices = np.array(trades["Exit Price"].values, dtype=float)
         returns = np.log(exit_prices / entry_prices)
-
-        # Create a Series using the trades' index
         returns_series = pd.Series(returns, index=trades.index)
 
         # Calculate performance metrics
@@ -294,9 +350,9 @@ class SingleAssetReversion:
         Returns:
             tuple: (signals DataFrame, metrics dictionary)
         """
-        if not self.mean_reverting:
-            # logger.info("Asset is not mean reverting. Skipping strategy.")
-            return None, {"Message": "Not mean reverting"}
+        if not self.valid_ou:
+            # logger.info("Asset does not fit the OU model well; strategy not run.")
+            return None, {"Message": "Asset does not fit the OU model well."}
 
         stop_loss, take_profit = self.calculate_optimal_bounds
         logger.info(
