@@ -113,7 +113,7 @@ def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
     # If min_weight is None, default to 0.01 so that weights of 0 are removed.
     if min_weight is None:
         min_weight = 0.01
-        
+
     # Convert dict to Series if necessary
     if isinstance(weights, dict):
         weights = pd.Series(weights)
@@ -304,6 +304,7 @@ def limit_portfolio_size(
 ) -> pd.Series:
     """
     Limit the portfolio to top N holdings by absolute weight and normalize the weights to a target sum.
+    Handles both long and short positions correctly.
 
     Args:
         weights (pd.Series): Series of asset weights (can include negatives for short positions).
@@ -317,10 +318,10 @@ def limit_portfolio_size(
     top_holdings = weights.abs().nlargest(max_holdings).index
     limited_weights = weights.loc[top_holdings]
 
-    # Normalize to the specified target sum
-    current_sum = limited_weights.sum()
-    if current_sum != 0:
-        limited_weights = limited_weights / current_sum * target_sum
+    # Normalize to the specified target sum while preserving the sign
+    abs_sum = limited_weights.abs().sum()
+    if abs_sum != 0:
+        limited_weights = limited_weights / abs_sum * target_sum
 
     return limited_weights
 

@@ -5,8 +5,8 @@ import optuna
 from scipy.optimize import minimize
 from sklearn.cluster import KMeans
 import torch
-
 from statsmodels.tsa.vector_ar.vecm import coint_johansen
+
 from utils import logger
 from stat_arb.graph_autoencoder import construct_graph, train_gae
 from utils.performance_metrics import sharpe_ratio
@@ -58,9 +58,7 @@ class MultiAssetReversion:
             )
             # Use externally provided cluster mapping.
             self.hedge_ratios, self.spread_series = (
-                self.construct_cointegrated_baskets_from_map(
-                    filtered_asset_cluster_map
-                )
+                self.construct_cointegrated_baskets_from_map(filtered_asset_cluster_map)
             )
         # --- Hybrid GNN + Johansen Step ---
         self.hedge_ratios, self.spread_series = self.construct_cointegrated_baskets(
@@ -124,15 +122,17 @@ class MultiAssetReversion:
         # For each cluster, run Johansen test to obtain cointegration vectors.
         for cluster_label, assets in clusters.items():
             # Filter out assets that are not present in prices_df
-            valid_assets = [asset for asset in assets if asset in self.prices_df.columns]
+            valid_assets = [
+                asset for asset in assets if asset in self.prices_df.columns
+            ]
 
             if len(valid_assets) < 2:
                 logger.debug(f"Skipping cluster {cluster_label}")
                 continue
-            
+
             # Use valid_assets instead of assets to avoid KeyError
             cluster_prices = self.prices_df[valid_assets]
-            
+
             if cluster_prices.shape[1] < 2:
                 # Single asset: assign full weight.
                 hedge_ratios[valid_assets[0]] = 1.0
@@ -141,7 +141,9 @@ class MultiAssetReversion:
                 try:
                     result = coint_johansen(cluster_prices, det_order=0, k_ar_diff=1)
                     cointegration_vector = result.evec[:, 0]
-                    cointegration_vector /= np.sum(np.abs(cointegration_vector))  # Normalize
+                    cointegration_vector /= np.sum(
+                        np.abs(cointegration_vector)
+                    )  # Normalize
                     for asset, weight in zip(valid_assets, cointegration_vector):
                         hedge_ratios[asset] = weight
                     basket_spread += cluster_prices.dot(cointegration_vector)
@@ -280,62 +282,125 @@ class MultiAssetReversion:
         result = minimize(objective, x0=[-0.5, 0.5], bounds=bounds)
         return result.x
 
-    def generate_trading_signals(self, stop_loss=None, take_profit=None):
+    def generate_trading_signals(
+        self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None
+    ) -> pd.DataFrame:
+        """
+        Generate trading signals using a stateful loop.
+        Numeric signals: 1 for BUY, -1 for SELL, and 0 indicates NO_SIGNAL.
+        The very first day is always neutral (0).
+
+        This version adds a reset condition: if an open position's deviation returns to "normal"
+        (within a threshold epsilon of 0), the position is closed.
+
+        Args:
+            stop_loss (Optional[float]): Lower deviation threshold to enter a long position.
+            take_profit (Optional[float]): Upper deviation threshold to exit the position.
+
+        Returns:
+            pd.DataFrame: Signals with "Position", "Ticker", "Entry Price", and "Exit Price".
+        """
         if stop_loss is None or take_profit is None:
             stop_loss, take_profit = self.calculate_optimal_bounds()
+
+        # Compute deviations from the mean (or μ) using log prices (or your spread)
         deviations = self.spread_series - self.spread_series.mean()
+
+        # Define epsilon as 10% of the spread's standard deviation to indicate "normal" range.
+        epsilon = 0.1 * self.spread_series.std()
+
         signals = pd.DataFrame(
             index=self.spread_series.index,
             columns=["Position", "Ticker", "Entry Price", "Exit Price"],
         )
+        signals[:] = np.nan
+
+        # List all tickers in one string for the multi-asset signal.
         signals["Ticker"] = ", ".join(self.prices_df.columns)
-        signals["Position"] = 0
+        signals["Position"] = 0  # Default to NO_SIGNAL (0).
         signals["Entry Price"] = np.nan
         signals["Exit Price"] = np.nan
 
-        position = 0
+        position = 0  # 0 = no position, 1 = long, -1 = short.
+        entry_price = np.nan
+
         for t in signals.index:
             dev = deviations.loc[t]
             current_price = self.spread_series.loc[t]
+
+            if t == signals.index[0]:
+                signals.loc[t, "Position"] = 0
+                continue
+
             if position == 0:
+                # No current position; check entry conditions.
                 if dev < stop_loss:
                     position = 1
-                    signals.loc[t, "Position"] = 1
-                    signals.loc[t, "Entry Price"] = current_price
+                    entry_price = current_price
+                    signals.loc[t, "Position"] = 1  # BUY
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = current_price
                 elif dev > take_profit:
                     position = -1
-                    signals.loc[t, "Position"] = -1
-                    signals.loc[t, "Entry Price"] = current_price
+                    entry_price = current_price
+                    signals.loc[t, "Position"] = -1  # SELL (for short)
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = current_price
                 else:
-                    signals.loc[t, "Position"] = 0
+                    signals.loc[t, "Position"] = 0  # NO_SIGNAL
             elif position == 1:
-                if dev >= 0:
-                    signals.loc[t, "Position"] = 0
+                # Long position is open.
+                # If deviation rises into the normal range, exit the long.
+                if dev >= -epsilon:
+                    signals.loc[t, "Position"] = 0  # Exit long.
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
+                    entry_price = np.nan
                 else:
+                    # Remain in long; propagate active status if desired.
                     signals.loc[t, "Position"] = 1
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = current_price
             elif position == -1:
-                if dev <= 0:
-                    signals.loc[t, "Position"] = 0
+                # Short position is open.
+                # If deviation falls into the normal range, exit the short.
+                if dev <= epsilon:
+                    signals.loc[t, "Position"] = 0  # Exit short.
                     signals.loc[t, "Exit Price"] = current_price
                     position = 0
+                    entry_price = np.nan
                 else:
                     signals.loc[t, "Position"] = -1
-        signals["Position"] = signals["Position"].ffill().fillna(0)
+                    signals.loc[t, "Entry Price"] = entry_price
+                    signals.loc[t, "Exit Price"] = current_price
+
+        # Forward-fill entry/exit prices for consistency.
+        signals["Entry Price"] = signals["Entry Price"].ffill()
+        signals["Exit Price"] = signals["Exit Price"].ffill()
+
         return signals
 
-    def simulate_strategy(self, signals):
-        returns = signals["Position"].shift(1) * self.spread_series.pct_change()
-        returns = returns.dropna()
-        s = sharpe_ratio(returns)
+    def simulate_strategy(self, signals: pd.DataFrame) -> tuple:
+        """
+        Simulate strategy performance using numeric signals.
+        - 1 for BUY, -1 for SELL, 0 for NO_SIGNAL.
+        """
+        # Calculate log returns of the spread series
+        log_returns = np.log(self.spread_series / self.spread_series.shift(1))
+
+        # Strategy returns: previous signal * current log return
+        strat_returns = signals["Position"].shift(1).fillna(0) * log_returns
+        strat_returns = strat_returns.dropna()
+
+        # Calculate performance metrics
         metrics = {
-            "Total Trades": (signals["Position"] != 0).sum(),
-            "Sharpe Ratio": s,
-            "Win Rate": (returns > 0).mean(),
-            "Avg Return": returns.mean(),
+            "Total Trades": (signals["Position"].diff().abs() > 0).sum(),
+            "Sharpe Ratio": sharpe_ratio(strat_returns),
+            "Win Rate": (strat_returns > 0).mean(),
+            "Avg Return": strat_returns.mean(),
         }
-        return returns, metrics
+
+        return strat_returns, metrics
 
     def optimize_and_trade(self):
         stop_loss, take_profit = self.calculate_optimal_bounds()

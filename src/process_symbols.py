@@ -166,12 +166,17 @@ def load_or_download_symbol_data(symbol, start_date, end_date, data_path, downlo
         if new_data.empty:
             return format_to_df_format(existing_data, symbol)
 
-        # Clean duplicates in each DataFrame.
+        #  --- Overwrite Same Dates With New Rows ---
+        # Remove duplicates in both sets.
         existing_data = existing_data.loc[~existing_data.index.duplicated(keep="first")]
         new_data = new_data.loc[~new_data.index.duplicated(keep="first")]
 
-        # Remove overlapping indices.
-        new_data = new_data.loc[~new_data.index.isin(existing_data.index)]
+        # Identify overlapping dates.
+        overlap_idx = existing_data.index.intersection(new_data.index)
+
+        # Drop any overlapping indices from existing_data, so new_data overwrites it.
+        if not overlap_idx.empty:
+            existing_data.drop(overlap_idx, inplace=True)
 
         # Force uniqueness by resetting the index on both.
         existing_data = force_unique_index(existing_data)
@@ -181,6 +186,7 @@ def load_or_download_symbol_data(symbol, start_date, end_date, data_path, downlo
         df_combined = force_unique_index(df_combined)
         df_combined = ensure_unique_timestamps(df_combined, symbol)
         df_combined.to_parquet(pq_file)
+
         return format_to_df_format(df_combined, symbol)
 
     # 6. Append missing data if existing data is outdated.
@@ -207,10 +213,11 @@ def load_or_download_symbol_data(symbol, start_date, end_date, data_path, downlo
             ]
             df_new = df_new.loc[~df_new.index.duplicated(keep="first")]
 
-            # Remove any overlapping indices.
-            df_new = df_new.loc[~df_new.index.isin(existing_data.index)]
+            # --- Overwrite Same Dates With New Rows ---
+            overlap_idx = existing_data.index.intersection(df_new.index)
+            if not overlap_idx.empty:
+                existing_data.drop(overlap_idx, inplace=True)
 
-            # Force uniqueness by resetting the index on both.
             existing_data = force_unique_index(existing_data)
             df_new = force_unique_index(df_new)
 

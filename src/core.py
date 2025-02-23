@@ -561,6 +561,7 @@ def run_pipeline(
                 config=config,
                 # asset_cluster_map=asset_cluster_map,
                 returns_df=returns_df,
+                allow_short=config.allow_short,
             )
 
     # Optional plotting (only on local runs)

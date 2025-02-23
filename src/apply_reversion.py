@@ -5,8 +5,11 @@ import pandas as pd
 from reversion.mean_reversion import apply_mean_reversion
 from result_output import build_final_result_dict, compute_performance_results
 from config import Config
+from stat_arb.plot_ou_signals import plot_all_ticker_signals
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
-from stat_arb.multi_asset_plots import plot_multi_asset_signals
+from stat_arb.multi_asset_plots import (
+    plot_multi_asset_signals,
+)
 from stat_arb.multi_asset_reversion import MultiAssetReversion
 from stat_arb.portfolio_allocator import PortfolioAllocator
 from stat_arb.single_asset_reversion import OUHeatPotential
@@ -85,70 +88,133 @@ def apply_ou_reversion(
     config: Config,
     returns_df: pd.DataFrame,
     asset_cluster_map: dict[str, int] = None,
+    allow_short: bool = False,
+    use_weekly: bool = False,
 ) -> dict:
     """
     Applies OU-based (heat potential) mean reversion and returns the final
     result dictionary.
     """
     logger.info("\nApplying OU-based mean reversion...")
+
+    if use_weekly:  # Resample prices to weekly to remove noise
+        data_df = dfs["data"].resample("W").last().dropna()
+        returns_df = data_df.pct_change().dropna()
+    else:
+        data_df = dfs["data"]
+
     # --- Prepare individual OU strategies for each ticker
     ou_strategies = {
-        ticker: OUHeatPotential(dfs["data"][ticker], returns_df[ticker])
-        for ticker in dfs["data"].columns
+        ticker: OUHeatPotential(data_df[ticker], returns_df[ticker])
+        for ticker in data_df.columns
     }
+
+    # Generate trading signals for each ticker
     ou_signals = {
         ticker: ou.generate_trading_signals() for ticker, ou in ou_strategies.items()
     }
+
+    # Simulate strategy performance using the generated signals
     ou_results = {
         ticker: ou.simulate_strategy(ou_signals[ticker])
         for ticker, ou in ou_strategies.items()
     }
 
+    # Extract individual returns from strategy results
     individual_returns = {
-        ticker: pd.Series(result[0]).reset_index(drop=True)
+        ticker: pd.Series(result[0], index=data_df.index).fillna(0)
         for ticker, result in ou_results.items()
     }
-    max_len = max(s.size for s in individual_returns.values())
-    individual_returns = {
-        ticker: s.reindex(range(max_len), fill_value=0)
-        for ticker, s in individual_returns.items()
-    }
+
+    # Ensure consistent length by reindexing to match the full date range of data_df
+    if use_weekly:
+        individual_returns = {
+            ticker: s.reindex(data_df.index, fill_value=0)
+            for ticker, s in individual_returns.items()
+        }
+    else:
+        max_len = max(s.size for s in individual_returns.values())
+        individual_returns = {
+            ticker: s.reindex(range(max_len), fill_value=0)
+            for ticker, s in individual_returns.items()
+        }
 
     # --- Cross-asset (multi-asset) mean reversion
     multi_asset_strategy = MultiAssetReversion(
-        prices_df=dfs["data"],
+        prices_df=data_df,
         asset_cluster_map=asset_cluster_map,
         hidden_channels=64,
         num_epochs=500,
     )
     multi_asset_results = multi_asset_strategy.optimize_and_trade()
 
+    # Get hedge ratios for each asset (ensure order matches data_df.columns)
     weights_series = pd.Series(multi_asset_results["Hedge Ratios"]).reindex(
-        dfs["data"].columns, fill_value=0
+        data_df.columns, fill_value=0
     )
     if weights_series.sum() != 0:
         weights_series /= weights_series.abs().sum()
 
+    # Compute basket returns based on the selected data frequency
     basket_returns = (
-        dfs["data"].pct_change().fillna(0).mul(weights_series, axis=1).sum(axis=1)
+        data_df.pct_change().fillna(0).mul(weights_series, axis=1).sum(axis=1)
     )
+
+    # Compute the aggregate price series for the basket
+    price_series = (data_df * weights_series).sum(axis=1)
+
+    # Compute multi-asset returns using the signals from the multi-asset strategy
     multi_asset_returns = (
         multi_asset_results["Signals"]["Position"].shift(1) * basket_returns
     )
     multi_asset_returns = multi_asset_returns.fillna(0)
 
-    if config.plot_reversion and config.test_mode:
-        plot_multi_asset_signals(
-            spread_series=multi_asset_strategy.spread_series,
-            signals=multi_asset_results["Signals"],
-            title="Multi-Asset Mean Reversion Trading Signals",
+    if config.plot_reversion:
+        filtered_price_data = {
+            ticker: dfs["data"][ticker]
+            for ticker, signals in ou_signals.items()
+            if signals is not None and not signals.empty
+        }
+        plot_all_ticker_signals(
+            price_data=filtered_price_data,
+            signal_data=ou_signals,
+            title="Mean Reversion Trading Signals Across All Tickers",
         )
+        # plot_multi_asset_signals(
+        #     price_series=price_series,
+        #     multi_asset_signals=multi_asset_results["Signals"],
+        #     title="Multi-Asset Mean Reversion Trading Signals",
+        # )
+
+    latest_ou_signals = {}
+    for ticker, ou in ou_strategies.items():
+        signals = ou.generate_trading_signals()  # your DataFrame of signals
+        # Get the last non-"NO_SIGNAL" row if available, otherwise default to neutral:
+        non_neutral = signals[signals["Position"] != "NO_SIGNAL"]
+        if not non_neutral.empty:
+            last_signal = non_neutral.iloc[-1]["Position"]
+        else:
+            last_signal = "NO_SIGNAL"
+        # Compute current deviation from the most recent price:
+        current_price = ou.prices.iloc[-1]
+        current_deviation = np.log(current_price) - ou.mu
+        # Also get the optimal thresholds for this asset:
+        stop_loss, take_profit = ou.calculate_optimal_bounds()
+        # Save a richer dictionary per ticker:
+        latest_ou_signals[ticker] = {
+            "signal": last_signal,
+            "current_deviation": current_deviation,
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "sigma": ou.sigma,
+        }
 
     portfolio_allocator = PortfolioAllocator()
     reversion_allocations = portfolio_allocator.compute_allocations(
         individual_returns,
         multi_asset_returns,
         hedge_ratios=multi_asset_results["Hedge Ratios"],
+        individual_signals=latest_ou_signals,
     )
     normalized_reversion_allocations = normalize_weights(reversion_allocations)
     stat_arb_adjusted_allocation = apply_adaptive_weighting(
@@ -156,6 +222,7 @@ def apply_ou_reversion(
         mean_reversion_weights=normalized_reversion_allocations,
         returns_df=returns_df,
         base_alpha=0.2,
+        allow_short=allow_short,
     )
     sorted_stat_arb_allocation = stat_arb_adjusted_allocation.sort_values(
         ascending=False

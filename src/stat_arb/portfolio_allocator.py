@@ -23,73 +23,97 @@ class PortfolioAllocator:
         individual_returns: dict,
         multi_asset_returns: pd.Series,
         hedge_ratios: dict,
+        individual_signals: dict,
     ) -> pd.Series:
         """
-        Computes the final portfolio allocation using Kelly + Risk Parity.
+        Computes the final portfolio allocation by combining individual strategy signals
+        with basket signals. The basket allocation is constructed by distributing exposure
+        via hedge ratios and refining it with a basket signal derived from multi-asset returns.
+        The individual signals are used to adjust the baseline optimized weights continuously:
+        the multiplier is determined by how far the current deviation is from the threshold relative to σ.
 
         Args:
             individual_returns (dict): Dictionary of per-ticker strategy returns.
-            multi_asset_returns (pd.Series): Multi-asset reversion strategy returns.
-            hedge_ratios (dict): Hedge ratios used in the cointegrated strategy.
+            multi_asset_returns (pd.Series): Multi-asset reversion returns (used as the basket signal).
+            hedge_ratios (dict): Hedge ratios from the basket signal.
+            individual_signals (dict): For each ticker, a dict with keys: "signal", "current_deviation", "stop_loss", "take_profit", "sigma".
 
         Returns:
             pd.Series: Final portfolio weights.
         """
-        # Convert dictionary to DataFrame
-        returns_df = pd.DataFrame(individual_returns)
-        returns_df["multi_asset"] = multi_asset_returns
-        returns_df = returns_df.fillna(0)
-
-        # Compute risk parity weights
-        risk_parity_weights = self.compute_risk_parity(returns_df)
-        # Compute Kelly scaling
-        kelly_weights = self.compute_kelly_sizing(returns_df)
-        # Optimize Kelly & Risk Parity jointly using Optuna (pass returns_df)
-        optimal_weights = self.optimize_kelly_risk_parity(
-            kelly_weights, risk_parity_weights, returns_df
+        # --- Compute individual (baseline) allocation ---
+        df_indiv = pd.DataFrame(individual_returns).fillna(0)
+        risk_parity_indiv = self.compute_risk_parity(df_indiv)
+        kelly_indiv = self.compute_kelly_sizing(df_indiv)
+        optimal_indiv = self.optimize_kelly_risk_parity(
+            kelly_indiv, risk_parity_indiv, df_indiv
         )
 
-        # Apply adaptive leverage
-        final_allocations = self.apply_adaptive_leverage(optimal_weights, returns_df)
+        # --- Compute basket allocation using hedge ratios ---
+        w_basket = pd.Series(hedge_ratios)
+        if w_basket.sum() != 0:
+            w_basket = w_basket / w_basket.abs().sum()
+        else:
+            w_basket = pd.Series(1, index=optimal_indiv.index)
+            w_basket = w_basket / w_basket.sum()
 
-        # Distribute multi_asset into individual tickers based on hedge ratios
-        final_allocations = self.distribute_multi_asset_weight(
-            final_allocations, hedge_ratios
-        )
+        # --- Incorporate basket signal from multi-asset returns ---
+        basket_signal = multi_asset_returns.iloc[-1]
+        basket_scale = np.tanh(basket_signal)
+        refined_basket = basket_scale * w_basket
 
-        return final_allocations
+        # --- Compute continuous adjustment multipliers based on individual signals ---
+        def compute_multiplier(sig_info):
+            # For BUY: if current_deviation < stop_loss, multiplier = 1 + (stop_loss - d)/sigma.
+            # For SELL: if current_deviation > take_profit, multiplier = 1 - (d - take_profit)/sigma.
+            # For NO_SIGNAL, multiplier = 1.
+            d = sig_info["current_deviation"]
+            sigma = sig_info["sigma"]
+            if sig_info["signal"] == "BUY":
+                multiplier = 1 + (sig_info["stop_loss"] - d) / sigma
+            elif sig_info["signal"] == "SELL":
+                multiplier = 1 - (d - sig_info["take_profit"]) / sigma
+            else:
+                multiplier = 1.0
+            # Optionally clip multiplier to a range:
+            multiplier = max(0.5, min(1.5, multiplier))
+            return multiplier
 
-    def distribute_multi_asset_weight(
-        self, final_allocations: pd.Series, hedge_ratios: dict
-    ) -> pd.Series:
-        """
-        Distributes the 'multi_asset' weight into individual tickers based on hedge ratios.
+        signal_factors = {
+            ticker: compute_multiplier(info)
+            for ticker, info in individual_signals.items()
+        }
+        signal_factor_series = pd.Series(signal_factors)
 
-        Args:
-            final_allocations (pd.Series): Portfolio allocations, including 'multi_asset'.
-            hedge_ratios (dict): Hedge ratios used in the cointegrated strategy.
+        # --- Adjust baseline allocations using these multipliers ---
+        adjusted_indiv = optimal_indiv * signal_factor_series
+        adjusted_basket = refined_basket * signal_factor_series
 
-        Returns:
-            pd.Series: Updated allocations where 'multi_asset' is distributed among tickers.
-        """
-        if "multi_asset" not in final_allocations:
-            return final_allocations  # No changes needed if multi_asset isn't present
+        # --- Optimize combination parameter gamma to blend the two allocations ---
+        def objective(trial):
+            gamma = trial.suggest_float("gamma", 0.0, 1.0, step=0.01)
+            combined = gamma * adjusted_indiv + (1 - gamma) * adjusted_basket
+            if combined.sum() == 0:
+                return -np.inf
+            combined = combined / combined.abs().sum()
+            port_returns = (df_indiv * combined).sum(axis=1)
+            if port_returns.std() == 0:
+                return -np.inf
+            sr = sharpe_ratio(port_returns)
+            return sr if not np.isnan(sr) else -np.inf
 
-        # Extract multi-asset weight
-        multi_asset_weight = final_allocations.pop("multi_asset")
+        study = optuna.create_study(direction="maximize")
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        study.optimize(objective, n_trials=50, n_jobs=-1)
+        best_gamma = study.best_params.get("gamma", 0.5)
 
-        if multi_asset_weight == 0:
-            return final_allocations  # No redistribution needed if weight is zero
+        final_weights = best_gamma * adjusted_indiv + (1 - best_gamma) * adjusted_basket
+        if final_weights.sum() != 0:
+            final_weights = final_weights / final_weights.abs().sum()
+        else:
+            final_weights = optimal_indiv  # fallback
 
-        hedge_ratio_series = pd.Series(hedge_ratios)
-        hedge_ratio_series /= hedge_ratio_series.abs().sum()  # Normalize hedge ratios
-
-        # Distribute multi-asset weight among tickers based on hedge ratios
-        distributed_weights = multi_asset_weight * hedge_ratio_series
-
-        # Add to the existing individual allocations
-        final_allocations = final_allocations.add(distributed_weights, fill_value=0)
-
+        final_allocations = self.apply_adaptive_leverage(final_weights, df_indiv)
         return final_allocations
 
     def compute_risk_parity(self, returns_df: pd.DataFrame) -> pd.Series:
@@ -139,7 +163,6 @@ class PortfolioAllocator:
     ) -> pd.Series:
         """
         Uses Optuna to jointly optimize Kelly scaling and risk parity allocation.
-
         Returns:
             pd.Series: Optimized final allocation weights.
         """
@@ -147,50 +170,35 @@ class PortfolioAllocator:
         def objective(trial):
             kelly_scaling = trial.suggest_float("kelly_scaling", 0.1, 1.0)
             risk_parity_scaling = trial.suggest_float("risk_parity_scaling", 0.1, 1.0)
-
-            # Combine the weights with the scaling factors
             combined = (
                 kelly_scaling * kelly_weights
                 + risk_parity_scaling * risk_parity_weights
             )
-
-            total = combined.sum()
-            if total == 0:
-                return -np.inf  # Prevent division by zero
-
-            combined /= total  # Normalize so the weights sum to 1
-
-            # Simulate portfolio returns
-            portfolio_returns = (combined * returns_df).sum(axis=1)
-
-            # If the portfolio's volatility is zero, return a penalty
-            if portfolio_returns.std() == 0:
+            if combined.sum() == 0:
                 return -np.inf
-
-            sr = sharpe_ratio(portfolio_returns)
-
+            combined /= combined.abs().sum()
+            port_returns = (returns_df * combined).sum(axis=1)
+            if port_returns.std() == 0:
+                return -np.inf
+            sr = sharpe_ratio(port_returns)
             if np.isnan(sr):
                 return -np.inf
-
             return sr
 
         study = optuna.create_study(direction="maximize")
         optuna.logging.set_verbosity(optuna.logging.WARNING)
-        study.optimize(objective, n_trials=50)
-
-        best_scaling = study.best_params
-        # Combine the weights using the best scaling parameters
+        study.optimize(objective, n_trials=50, n_jobs=-1)
+        best_params = study.best_params
         final_weights = (
-            best_scaling["kelly_scaling"] * kelly_weights
-            + best_scaling["risk_parity_scaling"] * risk_parity_weights
+            best_params["kelly_scaling"] * kelly_weights
+            + best_params["risk_parity_scaling"] * risk_parity_weights
         )
         scaling_total = (
-            best_scaling["kelly_scaling"] + best_scaling["risk_parity_scaling"]
+            best_params["kelly_scaling"] + best_params["risk_parity_scaling"]
         )
         if scaling_total == 0:
-            return risk_parity_weights  # fallback
-        final_weights /= scaling_total  # Normalize final weights to sum to 1
-
+            return risk_parity_weights
+        final_weights /= scaling_total
         return final_weights
 
     def apply_adaptive_leverage(

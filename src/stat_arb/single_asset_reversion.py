@@ -5,6 +5,7 @@ import pandas as pd
 from scipy.optimize import minimize
 import plotly.graph_objects as go
 
+from utils import logger
 from utils.performance_metrics import sharpe_ratio
 
 
@@ -33,7 +34,7 @@ class OUHeatPotential:
         self.T = T
         self.max_leverage = max_leverage
         self.kappa, self.mu, self.sigma = self.estimate_ou_parameters()
-        # print(
+        # logger.debug(
         #     f"\nEstimated parameters: kappa={self.kappa:.4f}, mu={self.mu:.4f}, sigma={self.sigma:.4f}"
         # )
 
@@ -76,12 +77,12 @@ class OUHeatPotential:
         return opt_result.x
 
     def generate_trading_signals(
-        self,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None,
+        self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None
     ) -> pd.DataFrame:
         """
-        Vectorized trading signal generation using NumPy and Pandas indexing.
+        Generate trading signals using a stateful loop.
+        - 1 for BUY, -1 for SELL, and 0 for NO_SIGNAL.
+        - The very first day is always neutral (0).
 
         Args:
             stop_loss (Optional[float]): Lower deviation threshold to enter a long position.
@@ -90,37 +91,58 @@ class OUHeatPotential:
         Returns:
             pd.DataFrame: Signals with "Position", "Entry Price", and "Exit Price".
         """
+        # Compute optimal bounds if not provided
         if stop_loss is None or take_profit is None:
             stop_loss, take_profit = self.calculate_optimal_bounds()
 
+        # Compute log prices and deviations from the mean (or μ)
         log_prices = np.log(self.prices)
         deviations = log_prices - self.mu
+
+        # Initialize signals DataFrame
         signals = pd.DataFrame(
             index=self.prices.index, columns=["Position", "Entry Price", "Exit Price"]
         )
         signals[:] = np.nan
 
-        # Entry (BUY signal) when deviation < stop_loss
-        buy_mask = (deviations < stop_loss) & (signals["Position"].isna())
-        signals.loc[buy_mask, "Position"] = "BUY"
-        signals.loc[buy_mask, "Entry Price"] = self.prices[buy_mask]
+        in_position = False
+        entry_price = None
 
-        # Exit (SELL signal) when deviation > take_profit
-        sell_mask = (deviations > take_profit) & (signals["Position"].shift(1) == "BUY")
-        signals.loc[sell_mask, "Position"] = "SELL"
-        signals.loc[sell_mask, "Exit Price"] = self.prices[sell_mask]
+        for idx, date in enumerate(self.prices.index):
+            price = self.prices.iloc[idx]
+            dev = deviations.iloc[idx]
+
+            # Always mark the first day as neutral (0)
+            if idx == 0:
+                signals.loc[date, "Position"] = 0
+                continue
+
+            if not in_position:
+                # Look for entry: if deviation is sufficiently low, enter long.
+                if dev < stop_loss:
+                    in_position = True
+                    entry_price = price
+                    signals.loc[date, "Position"] = 1  # BUY
+                    signals.loc[date, "Entry Price"] = price
+                else:
+                    signals.loc[date, "Position"] = 0  # NO_SIGNAL
+            else:
+                # When in position, by default mark as neutral.
+                signals.loc[date, "Position"] = 0  # NO_SIGNAL
+                # Check exit condition: if deviation exceeds take_profit, exit.
+                if dev > take_profit:
+                    signals.loc[date, "Position"] = -1  # SELL
+                    signals.loc[date, "Entry Price"] = entry_price
+                    signals.loc[date, "Exit Price"] = price
+                    in_position = False
+                    entry_price = None
 
         return signals
 
-    def simulate_strategy(self, signals):
+    def simulate_strategy(self, signals: pd.DataFrame) -> tuple:
         """
-        Simulate strategy performance.
-
-        Args:
-            signals (pd.DataFrame): Trading signals.
-
-        Returns:
-            tuple: (trade returns array, metrics dictionary)
+        Simulate strategy performance using numeric signals.
+        - 1 for BUY, -1 for SELL, and 0 for NO_SIGNAL.
         """
         trades = signals.dropna(subset=["Entry Price", "Exit Price"])
         if trades.empty:
@@ -130,14 +152,18 @@ class OUHeatPotential:
                 "Total Trades": 0,
                 "Sharpe Ratio": 0,
                 "Win Rate": 0,
-                "Optimized Kelly Fraction": 0,
-                "Risk Parity Allocation": {},
             }
             return zero_returns, metrics
 
-        returns = np.log(trades["Exit Price"].values / trades["Entry Price"].values)
-        returns_series = pd.Series(returns).reset_index(drop=True)
+        # Force conversion to float in case the types are mixed
+        entry_prices = np.array(trades["Entry Price"].values, dtype=float)
+        exit_prices = np.array(trades["Exit Price"].values, dtype=float)
+        returns = np.log(exit_prices / entry_prices)
 
+        # Create a Series using the trades' index
+        returns_series = pd.Series(returns, index=trades.index)
+
+        # Calculate performance metrics
         win_rate = (returns > 0).mean()
         sharpe_r = sharpe_ratio(
             returns_series, entries_per_year=252, risk_free_rate=0.0
@@ -147,7 +173,7 @@ class OUHeatPotential:
             "Sharpe Ratio": sharpe_r,
             "Win Rate": win_rate,
         }
-        return returns, metrics
+        return returns_series, metrics
 
     def composite_score(self, metrics):
         """
@@ -168,10 +194,12 @@ class OUHeatPotential:
             tuple: (signals DataFrame, metrics dictionary)
         """
         stop_loss, take_profit = self.calculate_optimal_bounds()
-        print(f"Optimal stop_loss: {stop_loss:.4f}, take_profit: {take_profit:.4f}")
+        logger.info(
+            f"Optimal stop_loss: {stop_loss:.4f}, take_profit: {take_profit:.4f}"
+        )
         signals = self.generate_trading_signals(stop_loss, take_profit)
         _, metrics = self.simulate_strategy(signals)
-        print("Strategy Metrics:", metrics)
+        logger.info("Strategy Metrics:", metrics)
         return signals, metrics
 
     def compute_optimal_kelly_risk_parity(self, n_trials: int = 50):
@@ -212,47 +240,5 @@ class OUHeatPotential:
         study.optimize(objective, n_trials=n_trials, n_jobs=-1)
 
         best_params = study.best_params
-        print(f"Optimized Kelly & Risk Parity: {best_params}")
+        logger.info(f"Optimized Kelly & Risk Parity: {best_params}")
         return best_params
-
-    def plot_signals(self, title: str = "OU Process Trading Signals"):
-        """
-        Create an interactive Plotly chart that overlays buy/sell signals on the price series.
-
-        Args:
-            title (str): Title of the plot.
-        """
-        signals, _ = self.run_strategy()
-        fig = go.Figure()
-        fig.add_trace(
-            go.Scatter(
-                x=self.prices.index, y=self.prices.values, mode="lines", name="Price"
-            )
-        )
-        buy_signals = signals[signals["Position"] == "BUY"]
-        sell_signals = signals[signals["Position"] == "SELL"]
-        fig.add_trace(
-            go.Scatter(
-                x=buy_signals.index,
-                y=self.prices.loc[buy_signals.index],
-                mode="markers",
-                name="Buy",
-                marker=dict(symbol="triangle-up", color="green", size=10),
-            )
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=sell_signals.index,
-                y=self.prices.loc[sell_signals.index],
-                mode="markers",
-                name="Sell",
-                marker=dict(symbol="triangle-down", color="red", size=10),
-            )
-        )
-        fig.update_layout(
-            title=title,
-            xaxis_title="Time",
-            yaxis_title="Price",
-            template="plotly_white",
-        )
-        fig.show()
