@@ -78,7 +78,7 @@ def plot_all_ticker_signals(
                     x=buy_signals.index,
                     y=aligned_price_series.loc[buy_signals.index],
                     mode="markers",
-                    name="Buy Signal",
+                    name="Buy Signal Price",
                     marker=dict(symbol="triangle-up", color="#00cc33", size=10),
                     hovertemplate="%{y}",
                     showlegend=(i == 0),
@@ -96,7 +96,7 @@ def plot_all_ticker_signals(
                     x=sell_signals.index,
                     y=aligned_price_series.loc[sell_signals.index],
                     mode="markers",
-                    name="Sell Signal",
+                    name="Sell Signal Price",
                     marker=dict(symbol="triangle-down", color="red", size=10),
                     hovertemplate="%{y}",
                     showlegend=(i == 0),
@@ -138,28 +138,41 @@ def plot_all_ticker_signals(
             secondary_y=True,
         )
 
-        # --- Plot ±1σ and ±2σ as solid lines (bottom layer)
-        for sigma, color, label in [(1, "1sd_line", "±1σ"), (2, "2sd_line", "±2σ")]:
+        # --- Plot ±1σ and ±2σ as solid lines (bottom layer) with labels
+        for sigma, color, label in [(1, "1sd_line", "1σ"), (2, "2sd_line", "2σ")]:
+            # Upper sigma line with label
             fig.add_trace(
                 go.Scatter(
                     x=z_series.index,
                     y=[sigma] * len(z_series),
-                    mode="lines",
+                    mode="lines+text",
                     line=dict(color=palette[color], width=1.5, dash="solid"),
                     name=label,
-                    showlegend=(i == 0),
+                    text=[label] + [""] * (len(z_series) - 1),
+                    textposition="top right",
+                    textfont=dict(
+                        color=palette[color], size=12, family="Roboto, sans-serif"
+                    ),
+                    showlegend=False,
                 ),
                 row=row,
                 col=col,
                 secondary_y=True,
             )
+
+            # Lower sigma line with label
             fig.add_trace(
                 go.Scatter(
                     x=z_series.index,
                     y=[-sigma] * len(z_series),
-                    mode="lines",
+                    mode="lines+text",
                     line=dict(color=palette[color], width=1.5, dash="solid"),
                     name=label,
+                    text=[f"-{label}"] + [""] * (len(z_series) - 1),
+                    textposition="bottom right",
+                    textfont=dict(
+                        color=palette[color], size=12, family="Roboto, sans-serif"
+                    ),
                     showlegend=False,
                 ),
                 row=row,
@@ -168,14 +181,26 @@ def plot_all_ticker_signals(
             )
 
     fig.update_layout(
-        title=title,
-        height=500 * rows,
-        width=500 * cols,
+        title={
+            "text": title,
+            "y": 0.99,  # Adjust to move the title higher
+            "x": 0.01,
+            "xanchor": "left",
+            "yanchor": "top",
+            "font": {
+                "size": 32,  # Double-sized (adjust as needed)
+                "family": "Roboto, sans-serif",
+                "color": "#333333",
+                "weight": "bold",
+            },
+        },
+        height=480 * rows,
+        width=480 * cols,
         autosize=True,
-        showlegend=True,
+        showlegend=False,
         template="plotly_white",
         hovermode="x unified",
-        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.5)"),
+        margin=dict(t=100, l=20, r=20, b=20),
     )
 
     fig.update_yaxes(automargin=True, showgrid=False, zeroline=False)
