@@ -2,7 +2,7 @@ from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
 
-from reversion.mean_reversion import apply_mean_reversion
+from reversion.apply_mean_reversion import apply_mean_reversion
 from result_output import build_final_result_dict, compute_performance_results
 from config import Config
 from stat_arb.plot_ou_signals import plot_all_ticker_signals
