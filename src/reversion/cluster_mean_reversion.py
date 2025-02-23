@@ -10,6 +10,7 @@ from reversion.reversion_signals import (
     compute_stateful_signal_with_decay,
 )
 from reversion.optimize_period_weights import find_optimal_weights
+from utils.caching_utils import save_parameters_to_pickle
 
 
 def cluster_mean_reversion(
@@ -19,25 +20,17 @@ def cluster_mean_reversion(
     n_trials: int = 50,
     n_jobs: int = -1,
     global_cache: dict = None,  # Global cache passed in.
+    checkpoint_file: str = None  # Optional file to checkpoint the global cache.
 ):
     if global_cache is None:
         global_cache = {}
 
-    # Format clusters using the asset_cluster_map.
     clusters = format_asset_cluster_map(asset_cluster_map, global_cache)
     print(f"{len(clusters)} clusters found")
 
-    overall_signals = {}  # This will be a flat dict keyed by ticker.
-
-    # Build a reverse mapping for cached parameters.
-    cached_ticker_params = {
-        ticker: params
-        for ticker, params in global_cache.items()
-        if isinstance(params, dict)
-    }
+    overall_signals = {}  # flat dict keyed by ticker.
 
     for cluster_label, tickers in clusters.items():
-        # Filter tickers to those present in returns_df.
         tickers_in_returns = [t for t in tickers if t in returns_df.columns]
         if not tickers_in_returns:
             continue
@@ -46,15 +39,14 @@ def cluster_mean_reversion(
         if group_returns.empty:
             continue
 
-        # Try to retrieve cached parameters from any ticker in this cluster.
+        # Check if any ticker in the cluster already has cached parameters.
         group_params = None
         for ticker in tickers_in_returns:
-            if ticker in cached_ticker_params:
-                group_params = cached_ticker_params[ticker]
+            if ticker in global_cache and isinstance(global_cache[ticker], dict):
+                group_params = global_cache[ticker]
                 break
 
         if group_params is not None:
-            # Use cached parameters (which include the optimal weights).
             daily_params = {
                 "window": group_params["window_daily"],
                 "z_threshold_positive": group_params["z_threshold_daily_positive"],
@@ -67,17 +59,15 @@ def cluster_mean_reversion(
             }
             weight_daily = group_params["weight_daily"]
             weight_weekly = group_params["weight_weekly"]
-
+            print(f"Cluster {cluster_label}: Using cached parameters.")
         else:
-            # Optimize daily parameters.
             best_params_daily, _ = optimize_robust_mean_reversion(
                 returns_df=group_returns,
                 objective_weights=objective_weights,
-                test_window_range=range(5, 31, 5),
+                test_window_range=range(5, 61, 5),
                 n_trials=n_trials,
                 n_jobs=n_jobs,
             )
-            # Optimize weekly parameters on resampled data.
             weekly_returns = group_returns.resample("W").last()
             best_params_weekly, _ = optimize_robust_mean_reversion(
                 returns_df=weekly_returns,
@@ -89,24 +79,15 @@ def cluster_mean_reversion(
 
             daily_params = {
                 "window": round(best_params_daily.get("window", 20), 1),
-                "z_threshold_positive": round(
-                    best_params_daily.get("z_threshold_positive", 1.5), 1
-                ),
-                "z_threshold_negative": round(
-                    best_params_daily.get("z_threshold_negative", 1.5), 1
-                ),
+                "z_threshold_positive": round(best_params_daily.get("z_threshold_positive", 1.5), 1),
+                "z_threshold_negative": round(best_params_daily.get("z_threshold_negative", 1.5), 1),
             }
             weekly_params = {
                 "window": round(best_params_weekly.get("window", 5), 1),
-                "z_threshold_positive": round(
-                    best_params_weekly.get("z_threshold_positive", 1.5), 1
-                ),
-                "z_threshold_negative": round(
-                    best_params_weekly.get("z_threshold_negative", 1.5), 1
-                ),
+                "z_threshold_positive": round(best_params_weekly.get("z_threshold_positive", 1.5), 1),
+                "z_threshold_negative": round(best_params_weekly.get("z_threshold_negative", 1.5), 1),
             }
 
-            # For weight optimization, compute temporary signals.
             daily_signals_opt = {}
             for t in tickers_in_returns:
                 series = group_returns[t].dropna()
@@ -142,7 +123,6 @@ def cluster_mean_reversion(
                 f"Optimized weights for cluster {cluster_label}: daily={weight_daily}, weekly={weight_weekly}"
             )
 
-            # Store the newly optimized parameters.
             group_params = {
                 "window_daily": daily_params["window"],
                 "z_threshold_daily_positive": daily_params["z_threshold_positive"],
@@ -154,7 +134,6 @@ def cluster_mean_reversion(
                 "weight_weekly": weight_weekly,
             }
 
-        # Now compute the stateful signals (daily and weekly) using the chosen parameters.
         daily_signals = {}
         for t in tickers_in_returns:
             series = group_returns[t].dropna()
@@ -172,11 +151,17 @@ def cluster_mean_reversion(
                 else pd.Series(dtype=float)
             )
 
-        # Update the cache for each ticker in this cluster.
+        # Update the cache: assign the group's parameters to every ticker in the cluster.
         for ticker in tickers_in_returns:
             global_cache[ticker] = group_params
 
-        # Flatten the signals dictionary so each ticker has its own entry.
+        # Optionally checkpoint the updated global_cache.
+        if checkpoint_file is not None:
+            # We can create a temporary structure for checkpointing.
+            checkpoint = {"params": global_cache}
+            save_parameters_to_pickle(checkpoint, checkpoint_file)
+            print(f"Checkpoint saved after processing cluster {cluster_label}.")
+
         for ticker in tickers_in_returns:
             overall_signals[ticker] = {
                 "daily": daily_signals.get(ticker, {}),
