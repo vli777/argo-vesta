@@ -97,20 +97,18 @@ def convert_weights_to_series(weights, index=None):
 
 def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
     """
-    Normalize the weights by filtering out values below min_weight and scaling the remaining weights to sum to 1.
-    If no weights meet the min_weight threshold, the original weights are returned, scaled to sum to 1.
+    Normalize the weights by filtering out absolute values below min_weight,
+    scaling the net sum to exactly 1, and rounding to three decimals.
+
+    If all weights are below min_weight, it scales the original weights to sum to 1.
 
     Args:
-        weights (dict or pd.Series): The input weights.
-        min_weight (float): The minimum weight threshold.
+        weights (dict or pd.Series): The input weights (may include negative values if shorts are allowed).
+        min_weight (float): The minimum (absolute) weight threshold.
 
     Returns:
-        pd.Series: The normalized weights with indices as asset symbols.
+        pd.Series: The normalized weights, whose sum is exactly 1.0 after rounding.
     """
-    logger.debug(f"Original weights: {weights}")
-    logger.debug(f"Minimum weight threshold: {min_weight}")
-
-    # If min_weight is None, default to 0.01 so that weights of 0 are removed.
     if min_weight is None:
         min_weight = 0.01
 
@@ -119,32 +117,32 @@ def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
         weights = pd.Series(weights)
 
     # Filter out assets whose absolute weight is below min_weight
-    filtered_weights = weights[weights.abs() >= min_weight]
+    filtered = weights[weights.abs() >= min_weight]
+    if filtered.empty:
+        # If everything is below min_weight, revert to original
+        filtered = weights.copy()
 
-    if filtered_weights.empty:
-        logger.warning(
-            "No weights meet the minimum threshold. Returning scaled original weights."
-        )
-        filtered_weights = (
-            weights  # Retain original weights if all are below min_weight
-        )
-
-    # Normalize the weights so they sum to 1
-    total_weight = filtered_weights.sum()
-    logger.debug(f"Total weight after filtering: {total_weight}")
-
+    total_weight = filtered.sum()
     if total_weight == 0:
-        logger.error("Total weight is zero after filtering. Cannot normalize weights.")
-        raise ValueError(
-            "Total weight is zero after filtering. Cannot normalize weights."
-        )
+        # If the sum is zero (all zero or balanced positive/negative?), fallback
+        # or raise an error. Here we raise, but you could also revert to original.
+        raise ValueError("Total weight is zero after filtering. Cannot normalize.")
 
-    normalized_weights = filtered_weights / total_weight
-    logger.debug(f"Normalized weights before rounding: {normalized_weights}")
+    # Scale so net sum = 1
+    scaled_weights = filtered / total_weight
 
-    # Round each weight to three decimal places
-    rounded_weights = normalized_weights.round(3)
-    logger.debug(f"Normalized weights after rounding: {rounded_weights}")
+    # Round to three decimals
+    rounded_weights = scaled_weights.round(3)
+
+    # Make the sum exactly 1.0 by adjusting the first element
+    sum_rounded = rounded_weights.sum()
+    diff = 1.0 - sum_rounded
+
+    if len(rounded_weights) > 0:
+        first_ticker = rounded_weights.index[0]
+        rounded_weights.loc[first_ticker] += diff
+        # Potentially re-round to 3 decimals if the diff is large, but that could cause
+        # a second offset. Usually diff is small enough to ignore or only correct once.
 
     return rounded_weights
 
