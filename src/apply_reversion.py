@@ -178,7 +178,7 @@ def apply_ou_reversion(
             signal_data=ou_signals,
         )
         signals = multi_asset_strategy.generate_trading_signals()
-        stop_loss, take_profit = multi_asset_strategy.calculate_optimal_bounds()
+        stop_loss, take_profit = multi_asset_strategy.calculate_optimal_bounds
         fig = plot_multi_ou_signals(
             mar=multi_asset_strategy,
             signals=signals,
@@ -205,7 +205,7 @@ def apply_ou_reversion(
         current_price = ou.prices.iloc[-1]
         current_deviation = np.log(current_price) - ou.mu
         # Also get the optimal thresholds for this asset:
-        stop_loss, take_profit = ou.calculate_optimal_bounds()
+        stop_loss, take_profit = ou.calculate_optimal_bounds
         # Save a richer dictionary per ticker:
         latest_ou_signals[ticker] = {
             "signal": last_signal,

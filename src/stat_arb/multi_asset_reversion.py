@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Optional
 import numpy as np
 import pandas as pd
@@ -113,6 +114,9 @@ class MultiAssetReversion:
         #   x_scaled = sqrt(ou_kappa) / ou_sigma * (spread - ou_mu)
         self.scale = np.sqrt(self.ou_kappa) / self.ou_sigma
 
+        # Set a flag for mean reversion.
+        self.mean_reverting = self.ou_kappa > 0 and self.ou_sigma > 0
+        
         # Allocation computations (Kelly, risk parity, etc.)
         self.kelly_fractions = self.compute_dynamic_kelly()
         self.risk_parity_weights = self.compute_risk_parity_weights()
@@ -315,6 +319,7 @@ class MultiAssetReversion:
                 is_stationary.iloc[i] = False
         return is_stationary
 
+    # @cached_property
     # def calculate_optimal_bounds(self):
     #     """
     #     Solve the free-boundary problem via the method of heat potentials by discretizing the
@@ -456,6 +461,7 @@ class MultiAssetReversion:
     #     take_profit_unscaled = theta + b_star / scale
     #     return stop_loss_unscaled, take_profit_unscaled
     
+    # @cached_property
     # def calculate_optimal_bounds(self):
     #     """
     #     Numerically solve the free-boundary problem (in natural units) as derived in Lipton and López de Prado.
@@ -560,6 +566,7 @@ class MultiAssetReversion:
     #     stop_loss_unscaled = theta - b_star / scale
     #     take_profit_unscaled = theta + b_star / scale
     #     return stop_loss_unscaled, take_profit_unscaled
+    @cached_property
     def calculate_optimal_bounds(self):
         """
         Optimize stop-loss and take-profit thresholds based on OU dynamics.
@@ -594,8 +601,12 @@ class MultiAssetReversion:
         and then compare it to the optimal thresholds (stop_loss and take_profit) which are in the same units.
         Optional ADF and trend filters are applied.
         """
+        if not self.mean_reverting:
+            # logger.info("Asset is not mean reverting. Skipping signal generation.")
+            return pd.DataFrame(index=self.prices_df.index, columns=["Position", "Ticker", "Entry Price", "Exit Price"])
+        
         if stop_loss is None or take_profit is None:
-            stop_loss, take_profit = self.calculate_optimal_bounds()
+            stop_loss, take_profit = self.calculate_optimal_bounds
 
         # Compute scaled OU deviation.
         x_scaled = self.scale * (self.spread_series - self.ou_mu)
@@ -709,7 +720,10 @@ class MultiAssetReversion:
         return strat_returns, metrics
 
     def optimize_and_trade(self):
-        stop_loss, take_profit = self.calculate_optimal_bounds()
+        stop_loss, take_profit = self.calculate_optimal_bounds
+        logger.info(
+            f"Optimal stop_loss: {stop_loss:.4f}, take_profit: {take_profit:.4f}"
+        )
         signals = self.generate_trading_signals(stop_loss, take_profit)
         returns, metrics = self.simulate_strategy(signals)
         hedge_ratios_series = pd.Series(

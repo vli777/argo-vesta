@@ -1,8 +1,9 @@
+from functools import cached_property
 from typing import Optional, Union
 import numpy as np
 import optuna
 import pandas as pd
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
 import plotly.graph_objects as go
 
 from utils import logger
@@ -34,6 +35,8 @@ class SingleAssetReversion:
         self.T = T
         self.max_leverage = max_leverage
         self.kappa, self.mu, self.sigma = self.estimate_ou_parameters()
+        # Check if the asset is mean reverting (OU process must have positive kappa and sigma)
+        self.mean_reverting = self.kappa > 0 and self.sigma > 0
         # logger.debug(
         #     f"\nEstimated parameters: kappa={self.kappa:.4f}, mu={self.mu:.4f}, sigma={self.sigma:.4f}"
         # )
@@ -59,22 +62,113 @@ class SingleAssetReversion:
         )
         return kappa, mu, sigma
 
+    # def calculate_optimal_bounds(self):
+    #     """
+    #     Optimize stop-loss and take-profit levels to maximize composite score.
+    #     Returns:
+    #         tuple: (optimal_stop_loss, optimal_take_profit)
+    #     """
+
+    #     def objective(bounds):
+    #         stop_loss, take_profit = bounds
+    #         signals = self.generate_trading_signals(stop_loss, take_profit)
+    #         _, metrics = self.simulate_strategy(signals)
+    #         return -self.composite_score(metrics)
+
+    #     bounds = [(-2 * self.sigma, 0), (0, 2 * self.sigma)]
+    #     opt_result = minimize(objective, x0=[-1, 1], bounds=bounds)
+    #     return opt_result.x
+
+    @cached_property
     def calculate_optimal_bounds(self):
         """
-        Optimize stop-loss and take-profit levels to maximize composite score.
-        Returns:
-            tuple: (optimal_stop_loss, optimal_take_profit)
+        Numerically solve the free-boundary problem (in natural units) for the SingleAssetReversion model.
+
+        In natural (dimensionless) units the problem is:
+            E(υ) = f(υ; b) + ∫_0^υ K(υ, s; b) E(s) ds,  0 ≤ υ ≤ Υ,
+        with the smooth-fit condition dE/dυ|_(υ=Υ) = 0.
+
+        The functions are defined as:
+            Π(υ; b) = sqrt(1 - 2*υ) * (b - θ),
+            K(υ, s; b) = 1/sqrt(2*pi) * ((Π(υ; b) - Π(s; b))/(υ-s+eps)) * exp(-((Π(υ; b) - Π(s; b))**2)/(2*(υ-s+eps))),
+            f(υ; b) = 2*pi*log((1-2*υ)/(1-2*Υ)) + 2*(Π(υ; b) + θ)*log(1-2*Υ).
+
+        Here, θ = self.mu and Υ = 1 - exp(-2*T_val) with T_val chosen so that Υ < 0.5.
+
+        The free-boundary in original units is then:
+            stop_loss = self.mu - b*/scale,  take_profit = self.mu + b*/scale,
+        where scale = sqrt(self.kappa)/self.sigma.
         """
+        theta = self.mu
+        if self.kappa > 0 and self.sigma > 0:
+            scale = np.sqrt(self.kappa) / self.sigma
+        else:
+            logger.warning(
+                f"Invalid OU parameters (kappa = {self.kappa}, sigma = {self.sigma}); setting scale=1."
+            )
+            scale = 1.0
 
-        def objective(bounds):
-            stop_loss, take_profit = bounds
-            signals = self.generate_trading_signals(stop_loss, take_profit)
-            _, metrics = self.simulate_strategy(signals)
-            return -self.composite_score(metrics)
+        eps = 1e-6
+        T_val = 0.2
+        Upsilon = 1 - np.exp(-2 * T_val)
 
-        bounds = [(-2 * self.sigma, 0), (0, 2 * self.sigma)]
-        opt_result = minimize(objective, x0=[-1, 1], bounds=bounds)
-        return opt_result.x
+        def Pi(upsilon, b):
+            return np.sqrt(max(0, 1 - 2 * upsilon)) * (b - theta)
+
+        def K(upsilon, s, b):
+            denom = upsilon - s + eps
+            return (
+                1.0
+                / np.sqrt(2 * np.pi)
+                * ((Pi(upsilon, b) - Pi(s, b)) / denom)
+                * np.exp(-((Pi(upsilon, b) - Pi(s, b)) ** 2) / (2 * denom))
+            )
+
+        def f_func(upsilon, b):
+            return 2 * np.pi * np.log((1 - 2 * upsilon) / (1 - 2 * Upsilon)) + 2 * (
+                Pi(upsilon, b) + theta
+            ) * np.log(1 - 2 * Upsilon)
+
+        N = 200
+        u_uniform = np.linspace(0, 1, N)
+        c = 5.0
+        upsilon_grid = Upsilon * (np.exp(u_uniform * c) - 1) / (np.exp(c) - 1)
+        delta = np.diff(upsilon_grid)
+
+        def solve_E(b):
+            E = np.zeros(N)
+            for i in range(N):
+                upsilon_i = upsilon_grid[i]
+                if i == 0:
+                    integral = 0.0
+                else:
+                    s_vals = upsilon_grid[: i + 1]
+                    E_vals = E[: i + 1]
+                    K_vals = np.array([K(upsilon_i, s, b) for s in s_vals])
+                    integral = np.trapz(K_vals * E_vals, s_vals)
+                E[i] = f_func(upsilon_i, b) + integral
+            return E
+
+        def free_boundary_error(b):
+            E = solve_E(b)
+            dE = (E[-1] - E[-2]) / (upsilon_grid[-1] - upsilon_grid[-2] + eps)
+            return np.abs(dE)
+
+        res = minimize_scalar(
+            free_boundary_error, bounds=(0.1, upsilon_grid[-1]), method="bounded"
+        )
+        if not res.success:
+            logger.warning(
+                "Free-boundary optimization did not converge. Using default b* = 2.0."
+            )
+            b_star = 2.0
+        else:
+            b_star = res.x
+            logger.info(f"Optimized free-boundary in natural units: b* = {b_star}")
+
+        stop_loss_unscaled = theta - b_star / scale
+        take_profit_unscaled = theta + b_star / scale
+        return stop_loss_unscaled, take_profit_unscaled
 
     def generate_trading_signals(
         self, stop_loss: Optional[float] = None, take_profit: Optional[float] = None
@@ -91,9 +185,16 @@ class SingleAssetReversion:
         Returns:
             pd.DataFrame: Signals with "Position", "Entry Price", and "Exit Price".
         """
+        if not self.mean_reverting:
+            # logger.info("Asset is not mean reverting. Skipping signal generation.")
+            return pd.DataFrame(
+                index=self.prices.index,
+                columns=["Position", "Entry Price", "Exit Price"],
+            )
+
         # Compute optimal bounds if not provided
         if stop_loss is None or take_profit is None:
-            stop_loss, take_profit = self.calculate_optimal_bounds()
+            stop_loss, take_profit = self.calculate_optimal_bounds
 
         # Compute log prices and deviations from the mean (or μ)
         log_prices = np.log(self.prices)
@@ -193,7 +294,11 @@ class SingleAssetReversion:
         Returns:
             tuple: (signals DataFrame, metrics dictionary)
         """
-        stop_loss, take_profit = self.calculate_optimal_bounds()
+        if not self.mean_reverting:
+            # logger.info("Asset is not mean reverting. Skipping strategy.")
+            return None, {"Message": "Not mean reverting"}
+
+        stop_loss, take_profit = self.calculate_optimal_bounds
         logger.info(
             f"Optimal stop_loss: {stop_loss:.4f}, take_profit: {take_profit:.4f}"
         )
@@ -230,7 +335,7 @@ class SingleAssetReversion:
                 dynamic_kelly_fraction * risk_parity_scaling * risk_parity_allocation
             )
             adjusted_allocation /= adjusted_allocation.sum()
-            stop_loss, take_profit = self.calculate_optimal_bounds()
+            stop_loss, take_profit = self.calculate_optimal_bounds
             signals = self.generate_trading_signals(stop_loss, take_profit)
             _, metrics = self.simulate_strategy(signals)
             return self.composite_score(metrics)
