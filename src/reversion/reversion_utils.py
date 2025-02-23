@@ -131,7 +131,7 @@ def propagate_signals_by_similarity(
     composite_signals: dict,
     group_mapping: dict,
     returns_df: pd.DataFrame,
-    signal_dampening: float = 0.5,
+    signal_strength: float = 0.5,
     lw_threshold: int = 50,
 ) -> dict:
     """
@@ -147,7 +147,7 @@ def propagate_signals_by_similarity(
         group_mapping (dict): Mapping of cluster IDs to group info, which includes 'tickers'.
         returns_df (pd.DataFrame): Returns DataFrame (dates as index, tickers as columns).
         lw_threshold (int): Size threshold for using Ledoit Wolf vs Pearson correlation.
-        signal_dampening (float): Dampening factor when propagating original source signals.
+        signal_strength (float): Factor when propagating original source signals.
 
     Returns:
         dict: Updated composite signals with propagated, normalized values.
@@ -218,8 +218,8 @@ def propagate_signals_by_similarity(
 
             # Combine the original and the normalized propagated signal.
             updated_signals[ticker] = (
-                1 - signal_dampening
-            ) * original_signal + signal_dampening * propagated_signal
+                1 - signal_strength
+            ) * original_signal + signal_strength * propagated_signal
 
     return updated_signals
 
