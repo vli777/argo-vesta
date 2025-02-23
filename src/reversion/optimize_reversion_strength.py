@@ -1,3 +1,4 @@
+from pathlib import Path
 import optuna
 import pandas as pd
 
@@ -9,6 +10,10 @@ from models.optimizer_utils import (
     strategy_composite_score,
     strategy_performance_metrics,
 )
+from src.utils.caching_utils import (
+    load_parameters_from_pickle,
+    save_parameters_to_pickle,
+)
 
 
 def tune_reversion_alpha(
@@ -17,10 +22,24 @@ def tune_reversion_alpha(
     composite_signals: dict,
     group_mapping: dict,
     objective_weights: dict,
+    cache_dir: str = "optuna_cache",
     n_trials: int = 50,
     patience: int = 10,  # Stop early if no improvement
     hv_window: int = 50,
 ) -> float:
+    """
+    Tune the reversion alpha using Optuna, with caching support.
+    Checks if a cached alpha value exists before running optimization.
+    """
+    # Load the cache
+    cache_file_path = str(Path(cache_dir) / "reversion_cache_alpha.pkl")
+    alpha_cache = load_parameters_from_pickle(filename=cache_file_path)
+
+    # Check if a cached alpha exists
+    if "base_alpha" in alpha_cache:
+        best_base_alpha = alpha_cache["base_alpha"]
+        print(f"Using cached base_alpha: {best_base_alpha}")
+        return best_base_alpha
 
     # Compute historical realized volatility
     historical_vol = returns_df.rolling(window=hv_window).std().mean().mean()
@@ -48,6 +67,10 @@ def tune_reversion_alpha(
     # Get the best base_alpha
     best_base_alpha = study.best_params["base_alpha"]
     print(f"Optimal base_alpha: {best_base_alpha}")
+
+    # Save the updated cache
+    alpha_cache["base_alpha"] = best_base_alpha
+    save_parameters_to_pickle(alpha_cache, cache_dir=cache_dir)
 
     return best_base_alpha
 

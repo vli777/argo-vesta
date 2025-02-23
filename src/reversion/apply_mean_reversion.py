@@ -129,12 +129,10 @@ def apply_mean_reversion(
         objective_weights=objective_weights,
         hv_window=50,
     )
-    logger.info(f"Baseline alpha: {base_alpha}")
 
     # # 10. Adjust alpha by realized volatility
     realized_volatility = returns_df.rolling(window=20).std().mean(axis=1)
     adaptive_alpha = base_alpha / (1 + realized_volatility.iloc[-1])
-    logger.info(f"Adaptive alpha: {adaptive_alpha}")
 
     # 11. Adjust the baseline allocation with the final signals and alpha
     final_allocation = adjust_allocation_with_mean_reversion(
