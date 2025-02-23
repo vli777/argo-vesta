@@ -89,6 +89,7 @@ def apply_mean_reversion(
         objective_weights=objective_weights,
         hv_window=50,
     )
+    print(f"Baseline alpha: {base_alpha}")
     realized_volatility = returns_df.rolling(window=20).std().mean(axis=1)
     adaptive_alpha = base_alpha / (1 + realized_volatility.iloc[-1])
     print(f"Adaptive alpha: {adaptive_alpha}")
