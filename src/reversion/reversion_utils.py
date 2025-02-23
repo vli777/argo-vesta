@@ -111,6 +111,22 @@ def calculate_continuous_composite_signal(signals: dict, ticker_params: dict) ->
     return composite
 
 
+def group_ticker_params_by_cluster(ticker_params: dict) -> dict:
+    """
+    Convert a global cache keyed by ticker into a dictionary keyed by cluster id.
+    Each value is a dictionary with keys:
+      - "tickers": a list of tickers in that cluster
+      - "params": the parameters for that cluster (assumed to be the same for all tickers in the cluster)
+    """
+    group_parameters = {}
+    for ticker, params in ticker_params.items():
+        cluster = params.get("cluster", "Unknown")
+        if cluster not in group_parameters:
+            group_parameters[cluster] = {"tickers": [], "params": params}
+        group_parameters[cluster]["tickers"].append(ticker)
+    return group_parameters
+
+
 def propagate_signals_by_similarity(
     composite_signals: dict,
     group_mapping: dict,
@@ -258,19 +274,3 @@ def adjust_allocation_with_mean_reversion(
 
     normalized_adjusted = normalize_weights(adjusted)
     return normalized_adjusted
-
-
-def group_ticker_params_by_cluster(ticker_params: dict) -> dict:
-    """
-    Convert a global cache keyed by ticker into a dictionary keyed by cluster id.
-    Each value is a dictionary with keys:
-      - "tickers": a list of tickers in that cluster
-      - "params": the parameters for that cluster (assumed to be the same for all tickers in the cluster)
-    """
-    group_parameters = {}
-    for ticker, params in ticker_params.items():
-        cluster = params.get("cluster", "Unknown")
-        if cluster not in group_parameters:
-            group_parameters[cluster] = {"tickers": [], "params": params}
-        group_parameters[cluster]["tickers"].append(ticker)
-    return group_parameters
