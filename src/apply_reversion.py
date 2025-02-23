@@ -170,8 +170,13 @@ def apply_ou_reversion(
     multi_asset_returns = multi_asset_returns.fillna(0)
 
     if config.plot_reversion:
+        filtered_price_data = {
+            ticker: dfs["data"][ticker]
+            for ticker, signals in ou_signals.items()
+            if signals is not None and not signals.empty
+        }
         plot_all_ticker_signals(
-            price_data=dfs["data"],
+            price_data=filtered_price_data,
             signal_data=ou_signals,
             title="Mean Reversion Trading Signals Across All Tickers",
         )

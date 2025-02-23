@@ -36,7 +36,7 @@ def plot_all_ticker_signals(
     rows = math.ceil(num_tickers / cols)
 
     horizontal_spacing = 0.05
-    vertical_spacing = 0.002
+    vertical_spacing = 0.05
 
     # Create subplot grid with dual y-axes.
     specs = [[{"secondary_y": True} for _ in range(cols)] for _ in range(rows)]
@@ -104,7 +104,7 @@ def plot_all_ticker_signals(
                 ),
                 row=row,
                 col=col,
-                secondary_y=False,                
+                secondary_y=False,
             )
 
         # --- Primary Axis: Plot Price Series (below signals)
@@ -171,11 +171,13 @@ def plot_all_ticker_signals(
         title=title,
         height=500 * rows,
         width=500 * cols,
+        autosize=True,
         showlegend=True,
         template="plotly_white",
         hovermode="x unified",
         legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.5)"),
     )
+
     fig.update_yaxes(automargin=True, showgrid=False, zeroline=False)
     fig.update_xaxes(showgrid=False, zeroline=False)
 
