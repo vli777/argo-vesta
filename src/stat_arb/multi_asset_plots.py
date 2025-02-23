@@ -99,3 +99,84 @@ def plot_multi_asset_signals(
     )
 
     fig.show()
+
+
+def plot_multi_ou_signals(mar, signals, stop_loss, take_profit):
+    """
+    Create a Plotly figure plotting the OU deviation, the threshold levels,
+    and the buy/sell signals.
+
+    Parameters:
+        mar: MultiAssetReversion instance containing spread_series and ou_mu.
+        signals: DataFrame with datetime index and a "Position" column.
+        stop_loss: The long-entry threshold (a negative number).
+        take_profit: The short-entry threshold (a positive number).
+
+    Returns:
+        Plotly Figure.
+    """
+    # Define color palette
+    palette = px.colors.qualitative.Plotly
+    zscore_color = palette[0]  # Primary color for the OU deviation line
+    sell_color = palette[1]
+    buy_color = palette[2]
+
+    # Compute the OU deviation as: deviation = spread_series - ou_mu.
+    ou_deviation = mar.spread_series - mar.ou_mu
+
+    # Create the base figure with the OU deviation line.
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=ou_deviation.index,
+        y=ou_deviation.values,
+        mode='lines',
+        name='OU Deviation',
+        line=dict(color=zscore_color)
+    ))
+
+    # Add horizontal lines for stop_loss and take_profit thresholds.
+    fig.add_trace(go.Scatter(
+        x=[ou_deviation.index[0], ou_deviation.index[-1]],
+        y=[stop_loss, stop_loss],
+        mode='lines',
+        name='Stop Loss',
+        line=dict(color=buy_color, dash='dash')
+    ))
+    fig.add_trace(go.Scatter(
+        x=[ou_deviation.index[0], ou_deviation.index[-1]],
+        y=[take_profit, take_profit],
+        mode='lines',
+        name='Take Profit',
+        line=dict(color=sell_color, dash='dash')
+    ))
+
+    # Extract buy and sell signals.
+    buy_signals = signals[signals["Position"] == 1]
+    sell_signals = signals[signals["Position"] == -1]
+
+    # Plot buy signals using up triangles.
+    fig.add_trace(go.Scatter(
+        x=buy_signals.index,
+        y=(mar.spread_series.loc[buy_signals.index] - mar.ou_mu).values,
+        mode='markers',
+        marker=dict(symbol='triangle-up', size=10, color=buy_color),
+        name='Buy Signal'
+    ))
+    # Plot sell signals using down triangles.
+    fig.add_trace(go.Scatter(
+        x=sell_signals.index,
+        y=(mar.spread_series.loc[sell_signals.index] - mar.ou_mu).values,
+        mode='markers',
+        marker=dict(symbol='triangle-down', size=10, color=sell_color),
+        name='Sell Signal'
+    ))
+
+    fig.update_layout(
+        title="OU Dynamics: Spread Deviation & Trading Signals",
+        xaxis_title="Time",
+        yaxis_title="Deviation from OU Mean",
+        template="plotly_white"
+    )
+    
+    return fig

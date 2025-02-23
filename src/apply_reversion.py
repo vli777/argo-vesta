@@ -9,6 +9,7 @@ from stat_arb.plot_ou_signals import plot_all_ticker_signals
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
 from stat_arb.multi_asset_plots import (
     plot_multi_asset_signals,
+    plot_multi_ou_signals,
 )
 from stat_arb.multi_asset_reversion import MultiAssetReversion
 from stat_arb.portfolio_allocator import PortfolioAllocator
@@ -176,6 +177,15 @@ def apply_ou_reversion(
             price_data=filtered_price_data,
             signal_data=ou_signals,
         )
+        signals = multi_asset_strategy.generate_trading_signals()
+        stop_loss, take_profit = multi_asset_strategy.calculate_optimal_bounds()
+        fig = plot_multi_ou_signals(
+            mar=multi_asset_strategy,
+            signals=signals,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )        
+        fig.show()        
         plot_multi_asset_signals(
             spread_series=multi_asset_strategy.spread_series,
             multi_asset_signals=multi_asset_results["Signals"],
