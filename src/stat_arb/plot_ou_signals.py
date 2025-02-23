@@ -9,7 +9,7 @@ def plot_all_ticker_signals(
     price_data: dict,
     signal_data: dict,
     max_cols: int = 4,
-    title: str = "Mean Reversion Trading Signals with Dual Axes and Rolling Z-Score",
+    title: str = "Mean Reversion Trading Signals using Heat Potential",
 ):
     """
     Plot all tickers with buy/sell signals and dual y-axes:
