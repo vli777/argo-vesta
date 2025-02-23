@@ -620,17 +620,17 @@ class MultiAssetReversion:
             if self.ou_kappa > 0 and effective_sigma > 0:
                 scale_eff = np.sqrt(self.ou_kappa) / effective_sigma
             else:
-                logger.warning(
-                    "Invalid OU parameters (ou_kappa <= 0 or effective_sigma <= 0); setting scale_eff = 1."
-                )
+                # logger.warning(
+                #     "Invalid OU parameters (ou_kappa <= 0 or effective_sigma <= 0); setting scale_eff = 1."
+                # )
                 scale_eff = 1.0
         else:
             if self.ou_kappa > 0 and self.ou_sigma > 0:
                 scale_eff = np.sqrt(self.ou_kappa) / self.ou_sigma
             else:
-                logger.warning(
-                    "Invalid OU parameters (ou_kappa <= 0 or ou_sigma <= 0); setting scale_eff = 1."
-                )
+                # logger.warning(
+                #     "Invalid OU parameters (ou_kappa <= 0 or ou_sigma <= 0); setting scale_eff = 1."
+                # )
                 scale_eff = 1.0
 
         # Choose a finite horizon T_val so that Υ < 0.5.

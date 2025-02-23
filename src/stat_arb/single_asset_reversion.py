@@ -135,9 +135,9 @@ class SingleAssetReversion:
             scale = np.sqrt(self.kappa) / self.sigma
         else:
             scale = 1.0
-            logger.warning(
-                f"Invalid OU parameters (kappa={self.kappa}, sigma={self.sigma}); setting scale=1."
-            )
+            # logger.warning(
+            #     f"Invalid OU parameters (kappa={self.kappa}, sigma={self.sigma}); setting scale=1."
+            # )
 
         eps = 1e-6
         # Choose a dimensionless upper bound for upsilon
