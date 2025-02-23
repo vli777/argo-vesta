@@ -9,7 +9,7 @@ from utils import logger
 from utils.performance_metrics import sharpe_ratio
 
 
-class OUHeatPotential:
+class SingleAssetReversion:
     def __init__(
         self,
         prices: pd.Series,

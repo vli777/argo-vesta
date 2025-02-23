@@ -12,7 +12,7 @@ from stat_arb.multi_asset_plots import (
 )
 from stat_arb.multi_asset_reversion import MultiAssetReversion
 from stat_arb.portfolio_allocator import PortfolioAllocator
-from stat_arb.single_asset_reversion import OUHeatPotential
+from stat_arb.single_asset_reversion import SingleAssetReversion
 from utils.portfolio_utils import normalize_weights
 from utils.logger import logger
 
@@ -105,7 +105,7 @@ def apply_ou_reversion(
 
     # --- Prepare individual OU strategies for each ticker
     ou_strategies = {
-        ticker: OUHeatPotential(data_df[ticker], returns_df[ticker])
+        ticker: SingleAssetReversion(data_df[ticker], returns_df[ticker])
         for ticker in data_df.columns
     }
 
@@ -160,9 +160,6 @@ def apply_ou_reversion(
         data_df.pct_change().fillna(0).mul(weights_series, axis=1).sum(axis=1)
     )
 
-    # Compute the aggregate price series for the basket
-    price_series = (data_df * weights_series).sum(axis=1)
-
     # Compute multi-asset returns using the signals from the multi-asset strategy
     multi_asset_returns = (
         multi_asset_results["Signals"]["Position"].shift(1) * basket_returns
@@ -178,13 +175,12 @@ def apply_ou_reversion(
         plot_all_ticker_signals(
             price_data=filtered_price_data,
             signal_data=ou_signals,
-            title="Mean Reversion Trading Signals Across All Tickers",
         )
-        # plot_multi_asset_signals(
-        #     price_series=price_series,
-        #     multi_asset_signals=multi_asset_results["Signals"],
-        #     title="Multi-Asset Mean Reversion Trading Signals",
-        # )
+        plot_multi_asset_signals(
+            spread_series=multi_asset_strategy.spread_series,
+            multi_asset_signals=multi_asset_results["Signals"],
+            title="Multi-Asset Reversion Signals vs Z-score spread",
+        )
 
     latest_ou_signals = {}
     for ticker, ou in ou_strategies.items():
