@@ -3,9 +3,10 @@ Modern Portfolio Optimization
 
 # Upcoming 
 - [x] OU mean reversion and multi-asset statistical arbitrage
+![image](https://github.com/user-attachments/assets/e838a18d-7173-4102-91eb-40da5c8a96dd)
 ![image](https://github.com/user-attachments/assets/c9b31d53-ef5e-46c9-a39f-e04aea618fe8)
 - [x] Return-risk-sharpe profile of portfolio assets to see how much they contribute
-- [x] New unified optimizers for a scale of 7 options, from defensive to aggressive
+- [x] New unified strategy optimizers with vol and CVaR constraints
 - [ ] DuckDB migration for faster data loading
 
 # February 2025 
