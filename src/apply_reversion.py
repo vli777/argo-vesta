@@ -8,7 +8,6 @@ from config import Config
 from stat_arb.plot_ou_signals import plot_all_ticker_signals
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
 from stat_arb.multi_asset_plots import (
-    plot_multi_asset_signals,
     plot_multi_ou_signals,
 )
 from stat_arb.multi_asset_reversion import MultiAssetReversion
@@ -184,13 +183,8 @@ def apply_ou_reversion(
             signals=signals,
             stop_loss=stop_loss,
             take_profit=take_profit,
-        )        
-        fig.show()        
-        plot_multi_asset_signals(
-            spread_series=multi_asset_strategy.spread_series,
-            multi_asset_signals=multi_asset_results["Signals"],
-            title="Multi-Asset Reversion Signals vs Z-score spread",
         )
+        fig.show()
 
     latest_ou_signals = {}
     for ticker, ou in ou_strategies.items():

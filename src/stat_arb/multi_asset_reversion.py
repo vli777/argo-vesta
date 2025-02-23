@@ -24,6 +24,7 @@ from pyomo.environ import (
     value,
 )
 from pyomo.opt import SolverStatus, TerminationCondition
+from tqdm import tqdm
 
 from utils import logger
 from stat_arb.graph_autoencoder import construct_graph, train_gae
@@ -46,6 +47,8 @@ class MultiAssetReversion:
         use_trend_filter: bool = False,
         short_ma_window: int = 20,
         long_ma_window: int = 42,
+        use_jump_diffusion: bool = True,
+        jump_detection_threshold: float = 3.0,
     ):
         """
         Multi-asset mean reversion strategy using a hybrid GNN + Johansen approach,
@@ -67,6 +70,8 @@ class MultiAssetReversion:
             short_ma_window (int): Window size for the short moving average.
             long_ma_window (int): Window size for the long moving average.
         """
+        self.use_jump_diffusion = use_jump_diffusion
+        self.jump_detection_threshold = jump_detection_threshold
         self.use_adf_filter = use_adf_filter
         self.adf_window = adf_window
         self.adf_pvalue = adf_pvalue
@@ -108,15 +113,32 @@ class MultiAssetReversion:
         self.spread_series = self.spread_series - self.spread_series.mean()
 
         # Estimate OU parameters (kappa, mu, sigma) on the basket spread.
-        self.ou_kappa, self.ou_mu, self.ou_sigma = self.estimate_ou_parameters()
+        if self.use_jump_diffusion:
+            (
+                self.ou_kappa,
+                self.ou_mu,
+                self.ou_sigma,
+                self.jump_lambda,
+                self.jump_mean,
+                self.jump_std,
+            ) = self.estimate_jump_diffusion_params()
+        else:
+            self.ou_kappa, self.ou_mu, self.ou_sigma = self.estimate_ou_parameters()
+            # No jump parameters
+            self.jump_lambda, self.jump_mean, self.jump_std = 0.0, 0.0, 0.0
 
-        # Compute a scaling factor to move into natural units:
-        #   x_scaled = sqrt(ou_kappa) / ou_sigma * (spread - ou_mu)
-        self.scale = np.sqrt(self.ou_kappa) / self.ou_sigma
+        # Adjust the scaling factor: if ou_kappa is very small, fallback to a volatility-based scale.
+        if self.ou_kappa < 1e-4:
+            self.scale = 1.0 / self.ou_sigma
+        else:
+            logger.info(
+                f"kappa estimate {self.ou_kappa} was too small or negative, falling back to vol scale"
+            )
+            self.scale = np.sqrt(self.ou_kappa) / self.ou_sigma
 
         # Set a flag for mean reversion.
         self.mean_reverting = self.ou_kappa > 0 and self.ou_sigma > 0
-        
+
         # Allocation computations (Kelly, risk parity, etc.)
         self.kelly_fractions = self.compute_dynamic_kelly()
         self.risk_parity_weights = self.compute_risk_parity_weights()
@@ -215,27 +237,133 @@ class MultiAssetReversion:
 
     def estimate_ou_parameters(self):
         """
-        Estimate OU parameters on the basket spread using OLS:
-          Δx = α + β x_(t-1) + ε
-        and compute kappa = -β, μ = α/kappa, and σ based on the residuals.
-        A fallback is used if the regression sigma is too small compared to the overall spread volatility.
+        Estimate OU parameters on the basket spread using the standard discrete O-U approach.
+        We define:
+            X = xₜ₋₁
+            Y = xₜ - xₜ₋₁
+        Then perform OLS:
+            Y = α + β X
+        to get:
+            β = cov(X, Y) / var(X)
+            α = E[Y] - β * E[X]
+
+        From these we set:
+            kappa = -β       (assuming dt = 1)
+            mu = α / kappa   (if kappa != 0)
+
+        The residuals are:
+            ε = Y - (α + β X)
+
+        And the volatility is scaled by:
+            scaling_factor = sqrt(2*kappa / (1 - exp(-2*kappa)))
+
+        Finally, a fallback ensures the estimated sigma isn't too small relative to the overall spread volatility.
         """
         x = self.spread_series.dropna()
-        delta_x = x.diff().dropna()
+
+        # Create lagged series and compute differences
         x_lag = x.shift(1).dropna()
-        delta_x = delta_x.loc[x_lag.index]
-        beta, alpha = np.polyfit(x_lag, delta_x, 1)
-        kappa = -beta  # assume dt=1
+        delta_x = x.diff().dropna()
+        common_index = x_lag.index.intersection(delta_x.index)
+        x_lag = x_lag.loc[common_index]
+        delta_x = delta_x.loc[common_index]
+
+        # OLS estimates
+        cov_xy = np.cov(x_lag, delta_x, ddof=0)[0, 1]
+        var_x = np.var(x_lag, ddof=0)
+        beta = cov_xy / var_x
+        alpha = np.mean(delta_x) - beta * np.mean(x_lag)
+
+        kappa = -beta  # assume dt = 1
         mu = alpha / kappa if kappa != 0 else 0
+
+        # Residuals and adjusted volatility
         residuals = delta_x - (alpha + beta * x_lag)
-        reg_sigma = (
-            np.std(residuals) * np.sqrt(2 * kappa / (1 - np.exp(-2 * kappa)))
-            if kappa != 0
-            else np.std(x)
-        )
-        overall_sigma = np.std(x)
+        if kappa != 0:
+            scaling_factor = np.sqrt(2 * kappa / (1 - np.exp(-2 * kappa)))
+            reg_sigma = np.std(residuals, ddof=0) * scaling_factor
+        else:
+            reg_sigma = np.std(x, ddof=0)
+
+        overall_sigma = np.std(x, ddof=0)
         sigma = reg_sigma if reg_sigma > 0.1 * overall_sigma else overall_sigma
+
         return kappa, mu, sigma
+
+    def estimate_jump_diffusion_params(self):
+        """
+        Naive two-step approach:
+        1) Identify large outliers as jumps.
+        2) Fit jump parameters (lambda, jump_mean, jump_std).
+        3) Fit OU parameters ignoring those jumps.
+
+        Returns:
+            kappa, mu, sigma, jump_lambda, jump_mean, jump_std
+        """
+        # 1) Identify jumps
+        rets = self.returns_df[self.returns_df.columns[0]].dropna()
+        std_rets = np.std(rets)
+        threshold = self.jump_detection_threshold * std_rets
+
+        # Mark returns exceeding threshold as jumps
+        jump_mask = np.abs(rets) > threshold
+        jump_returns = rets[jump_mask]
+        normal_returns = rets[~jump_mask]
+
+        # 2) Estimate jump distribution
+        # (If we have no identified jumps, fallback to zero)
+        if len(jump_returns) > 0:
+            jump_lambda = float(jump_mask.sum()) / float(
+                len(rets)
+            )  # fraction of days with jumps
+            jump_mean = np.mean(jump_returns)
+            jump_std = np.std(jump_returns)
+        else:
+            jump_lambda = 0.0
+            jump_mean = 0.0
+            jump_std = 0.0
+
+        # 3) Fit OU parameters ignoring jumps
+        #    We'll do the same discrete-time approach from your `estimate_ou_parameters`.
+        #    Use the normal_returns to build your X-lag, delta-X series.
+
+        x = self.spread_series.dropna()  # full spread
+        # We'll create a *filtered* spread that excludes jump days in the differences
+        # so we skip big outliers
+        x_filtered = x.copy()
+        x_filtered.loc[jump_mask.index] = np.nan  # remove jump days
+        x_filtered = x_filtered.dropna()
+
+        # We want to compute the discrete difference ignoring jump days
+        x_lag = x_filtered.shift(1).dropna()
+        delta_x = x_filtered.diff().dropna()
+
+        common_idx = x_lag.index.intersection(delta_x.index)
+        x_lag = x_lag.loc[common_idx]
+        delta_x = delta_x.loc[common_idx]
+
+        if len(x_lag) < 2:
+            # fallback if we don't have enough data
+            kappa, mu, sigma = 0.0, x.mean(), x.std()
+        else:
+            cov_xy = np.cov(x_lag, delta_x, ddof=0)[0, 1]
+            var_x = np.var(x_lag, ddof=0)
+            beta = cov_xy / var_x if var_x > 1e-12 else 0.0
+            alpha = np.mean(delta_x) - beta * np.mean(x_lag)
+            kappa = -beta
+            mu = alpha / kappa if kappa != 0 else x.mean()
+
+            # residuals
+            residuals = delta_x - (alpha + beta * x_lag)
+            if kappa != 0:
+                scaling_factor = np.sqrt(2 * kappa / (1 - np.exp(-2 * kappa)))
+                reg_sigma = np.std(residuals, ddof=0) * scaling_factor
+            else:
+                reg_sigma = np.std(x, ddof=0)
+            overall_sigma = np.std(x, ddof=0)
+            sigma = reg_sigma if reg_sigma > 0.1 * overall_sigma else overall_sigma
+
+        return kappa, mu, sigma, jump_lambda, jump_mean, jump_std
 
     def composite_score(self, metrics):
         """
@@ -460,136 +588,155 @@ class MultiAssetReversion:
     #     stop_loss_unscaled = theta - b_star / scale
     #     take_profit_unscaled = theta + b_star / scale
     #     return stop_loss_unscaled, take_profit_unscaled
-    
-    # @cached_property
-    # def calculate_optimal_bounds(self):
-    #     """
-    #     Numerically solve the free-boundary problem (in natural units) as derived in Lipton and López de Prado.
 
-    #     In natural (dimensionless) units the problem is:
-    #         E(υ) = f(υ; b) + ∫_0^υ K(υ, s; b) E(s) ds,   0 ≤ υ ≤ Υ,
-    #     with the smooth-fit condition dE/dυ |_(υ=Υ) = 0.
-
-    #     The functions are defined as:
-    #         Π(υ; b) = sqrt(1 - 2*υ) * (b - θ),
-    #         K(υ, s; b) = 1/sqrt(2*pi) * ((Π(υ; b) - Π(s; b))/(υ-s+eps)) * exp(-((Π(υ; b) - Π(s; b))**2)/(2*(υ-s+eps))),
-    #         f(υ; b) = 2*pi*log((1-2*υ)/(1-2*Υ)) + 2*(Π(υ; b) + θ)*log(1-2*Υ).
-
-    #     Here, θ is ou_mu and Υ = 1 - exp(-2*T_val) for a chosen T_val such that Υ < 0.5.
-
-    #     We solve the integral equation via forward iteration on an inhomogeneous grid and then compute the
-    #     backward finite difference derivative at υ = Υ. The free-boundary condition is enforced by minimizing
-    #     the absolute derivative.
-
-    #     Finally, we transform the optimal free-boundary (in natural units) back into the original units via:
-    #         stop_loss = ou_mu - b*/scale,  take_profit = ou_mu + b*/scale,
-    #     where scale = sqrt(ou_kappa)/ou_sigma.
-    #     """
-    #     # Constants from OU estimation and natural-unit transformation.
-    #     theta = self.ou_mu
-    #     scale = np.sqrt(self.ou_kappa) / self.ou_sigma  # natural scaling factor
-    #     eps = 1e-6  # safeguard against division by zero
-
-    #     # Choose a finite horizon T_val so that Υ < 0.5.
-    #     T_val = 0.2  # Adjust as needed
-    #     Upsilon = 1 - np.exp(-2 * T_val)
-
-    #     # Define the exact functions:
-    #     def Pi(upsilon, b):
-    #         return np.sqrt(max(0, 1 - 2 * upsilon)) * (b - theta)
-
-    #     def K(upsilon, s, b):
-    #         denom = upsilon - s + eps
-    #         return (
-    #             1.0
-    #             / np.sqrt(2 * np.pi)
-    #             * ((Pi(upsilon, b) - Pi(s, b)) / denom)
-    #             * np.exp(-((Pi(upsilon, b) - Pi(s, b)) ** 2) / (2 * denom))
-    #         )
-
-    #     def f_func(upsilon, b):
-    #         return 2 * np.pi * np.log((1 - 2 * upsilon) / (1 - 2 * Upsilon)) + 2 * (
-    #             Pi(upsilon, b) + theta
-    #         ) * np.log(1 - 2 * Upsilon)
-
-    #     # Build an inhomogeneous grid in υ ∈ [0, Upsilon] using an exponential transformation.
-    #     N = 200  # number of grid points; increase for higher accuracy
-    #     u_uniform = np.linspace(0, 1, N)
-    #     c = 5.0  # clustering parameter
-    #     upsilon_grid = Upsilon * (np.exp(u_uniform * c) - 1) / (np.exp(c) - 1)
-
-    #     # Compute grid spacings.
-    #     delta = np.diff(upsilon_grid)  # length N-1
-
-    #     # Given a candidate free-boundary b (in natural units), solve for E(upsilon) on the grid by forward iteration.
-    #     def solve_E(b):
-    #         E = np.zeros(N)
-    #         # For each grid point i, approximate:
-    #         #   E(upsilon_i) = f(upsilon_i; b) + ∫_0^(upsilon_i) K(upsilon_i, s; b) E(s) ds.
-    #         for i in range(N):
-    #             upsilon_i = upsilon_grid[i]
-    #             # Compute the integral using trapezoidal rule.
-    #             if i == 0:
-    #                 integral = 0.0
-    #             else:
-    #                 # Use trapezoidal rule over indices 0 to i.
-    #                 s_vals = upsilon_grid[: i + 1]
-    #                 E_vals = E[: i + 1]
-    #                 # For j=0,...,i, evaluate kernel at upsilon_i, s.
-    #                 K_vals = np.array([K(upsilon_i, s, b) for s in s_vals])
-    #                 # Compute the integral approximately.
-    #                 integral = np.trapz(K_vals * E_vals, s_vals)
-    #             E[i] = f_func(upsilon_i, b) + integral
-    #         return E
-
-    #     # Define the free-boundary error function.
-    #     # We enforce the smooth-fit condition at the last grid point: dE/dυ ≈ (E[N-1] - E[N-2])/(upsilon_grid[N-1]-upsilon_grid[N-2]) == 0.
-    #     def free_boundary_error(b):
-    #         E = solve_E(b)
-    #         dE = (E[-1] - E[-2]) / (upsilon_grid[-1] - upsilon_grid[-2] + eps)
-    #         return np.abs(dE)
-
-    #     # Use SciPy's minimize_scalar to find b* that minimizes free_boundary_error.
-    #     res = minimize_scalar(
-    #         free_boundary_error, bounds=(0.1, upsilon_grid[-1]), method="bounded"
-    #     )
-    #     if not res.success:
-    #         logger.error(
-    #             "Free-boundary optimization did not converge. Using default b* = 2.0"
-    #         )
-    #         b_star = 2.0
-    #     else:
-    #         b_star = res.x
-    #         logger.info(f"Optimized free-boundary in natural units: b* = {b_star}")
-
-    #     # Transform b_star back to original units:
-    #     stop_loss_unscaled = theta - b_star / scale
-    #     take_profit_unscaled = theta + b_star / scale
-    #     return stop_loss_unscaled, take_profit_unscaled
     @cached_property
     def calculate_optimal_bounds(self):
         """
-        Optimize stop-loss and take-profit thresholds based on OU dynamics.
-        Here the thresholds are defined in terms of deviations from the OU mean.
-        For example, bounds might be set at -2σ for long entry and +2σ for short entry.
+        Numerically solve the free-boundary problem (in natural units) as derived in
+        Lipton and López de Prado, modified to account for jump diffusion.
+
+        When self.use_jump_diffusion is True, we define an effective volatility as:
+            σ_eff = sqrt(ou_sigma² + jump_lambda*(jump_std² + jump_mean²))
+        and then use:
+            scale_eff = sqrt(ou_kappa)/σ_eff.
+        If ou_kappa is non-positive (or would cause scale_eff to be zero), we fallback to scale_eff = 1.
+
+        Finally, we transform the optimal free-boundary (b*) back to original units via:
+            stop_loss = ou_mu - b*/scale_eff,  take_profit = ou_mu + b*/scale_eff.
+
+        Returns:
+            (stop_loss, take_profit): Tuple of floats in original units.
         """
+        # Constants from OU estimation.
+        theta = self.ou_mu
+        eps = 1e-6  # safeguard
 
-        def objective(bounds):
-            stop_loss, take_profit = bounds
-            signals = self.generate_trading_signals(stop_loss, take_profit)
-            _, metrics = self.simulate_strategy(signals)
-            if metrics["Total Trades"] == 0 or np.isnan(s):
-                return 1e6
-            s = metrics["Sharpe Ratio"]
-            return -s if not np.isnan(s) else np.inf
+        # Determine effective scaling factor.
+        if self.use_jump_diffusion:
+            effective_sigma = np.sqrt(
+                self.ou_sigma**2
+                + self.jump_lambda * (self.jump_std**2 + self.jump_mean**2)
+            )
+            if self.ou_kappa > 0 and effective_sigma > 0:
+                scale_eff = np.sqrt(self.ou_kappa) / effective_sigma
+            else:
+                logger.warning(
+                    "Invalid OU parameters (ou_kappa <= 0 or effective_sigma <= 0); setting scale_eff = 1."
+                )
+                scale_eff = 1.0
+        else:
+            if self.ou_kappa > 0 and self.ou_sigma > 0:
+                scale_eff = np.sqrt(self.ou_kappa) / self.ou_sigma
+            else:
+                logger.warning(
+                    "Invalid OU parameters (ou_kappa <= 0 or ou_sigma <= 0); setting scale_eff = 1."
+                )
+                scale_eff = 1.0
 
-        # Use bounds scaled by the estimated OU sigma
-        bounds = [(-2 * self.ou_sigma, 0), (0, 2 * self.ou_sigma)]
+        # Choose a finite horizon T_val so that Υ < 0.5.
+        T_val = 0.2  # Adjust as needed
+        Upsilon = 1 - np.exp(-2 * T_val)
 
-        result = minimize(
-            objective, x0=[-1 * self.ou_sigma, 1 * self.ou_sigma], bounds=bounds
+        # Define the exact functions.
+        def Pi(upsilon, b):
+            return np.sqrt(max(0, 1 - 2 * upsilon)) * (b - theta)
+
+        def K(upsilon, s, b):
+            denom = upsilon - s + eps
+            return (
+                (1.0 / np.sqrt(2 * np.pi))
+                * ((Pi(upsilon, b) - Pi(s, b)) / denom)
+                * np.exp(-((Pi(upsilon, b) - Pi(s, b)) ** 2) / (2 * denom))
+            )
+
+        def f_func(upsilon, b):
+            return 2 * np.pi * np.log((1 - 2 * upsilon) / (1 - 2 * Upsilon)) + 2 * (
+                Pi(upsilon, b) + theta
+            ) * np.log(1 - 2 * Upsilon)
+
+        # Build an inhomogeneous grid in υ ∈ [0, Upsilon].
+        N = 200  # number of grid points; adjust for accuracy
+        u_uniform = np.linspace(0, 1, N)
+        c = 5.0  # clustering parameter
+        upsilon_grid = Upsilon * (np.exp(u_uniform * c) - 1) / (np.exp(c) - 1)
+
+        # Given a candidate free-boundary b (in natural units), solve for E(υ) on the grid.
+        def solve_E(b):
+            E = np.zeros(N)
+            for i in range(N):
+                upsilon_i = upsilon_grid[i]
+                if i == 0:
+                    integral = 0.0
+                else:
+                    s_vals = upsilon_grid[: i + 1]
+                    E_vals = E[: i + 1]
+                    K_vals = np.array([K(upsilon_i, s, b) for s in s_vals])
+                    integral = np.trapz(K_vals * E_vals, s_vals)
+                E[i] = f_func(upsilon_i, b) + integral
+            return E
+
+        # Define the free-boundary error function enforcing the smooth-fit condition at the final grid point.
+        def free_boundary_error(b):
+            E = solve_E(b)
+            dE = (E[-1] - E[-2]) / (upsilon_grid[-1] - upsilon_grid[-2] + eps)
+            return np.abs(dE)
+
+        # Use SciPy's minimize_scalar to find b* that minimizes free_boundary_error.
+        res = minimize_scalar(
+            free_boundary_error, bounds=(0.1, upsilon_grid[-1]), method="bounded"
         )
-        return result.x
+        if not res.success:
+            logger.error(
+                "Free-boundary optimization did not converge. Using default b* = 2.0"
+            )
+            b_star = 2.0
+        else:
+            b_star = res.x
+            logger.info(f"Optimized free-boundary in natural units: b* = {b_star}")
+
+        # Transform b_star back to original units using the effective scale.
+        stop_loss_unscaled = theta - b_star / scale_eff
+        take_profit_unscaled = theta + b_star / scale_eff
+        return stop_loss_unscaled, take_profit_unscaled
+
+    # @cached_property
+    # def calculate_optimal_bounds(self, mc_runs=10, T=None):
+    #     """
+    #     Optimize stop-loss and take-profit thresholds based on OU dynamics.
+    #     Here the thresholds are defined in terms of deviations from the OU mean.
+    #     For example, bounds might be set at -2σ for long entry and +2σ for short entry.
+    #     """
+    #     if T is None:
+    #         T = len(self.spread_series)
+
+    #     def objective(bounds):
+    #         stop_loss, take_profit = bounds
+    #         sharpe_values = []
+    #         total_trades = []
+
+    #         for _ in tqdm(range(mc_runs), desc="MC Runs", leave=False):
+    #             _, metrics = self.simulate_strategy_on_simulated_path(
+    #                 T=T, stop_loss=stop_loss, take_profit=take_profit
+    #             )
+    #             sharpe_values.append(metrics["Sharpe Ratio"])
+    #             total_trades.append(metrics["Total Trades"])
+    #         avg_sharpe = np.mean(sharpe_values)
+    #         if np.mean(total_trades) == 0 or np.isnan(avg_sharpe):
+    #             return 1e6
+    #         return -avg_sharpe
+    #         # signals = self.generate_trading_signals(stop_loss, take_profit)
+    #         # _, metrics = self.simulate_strategy(signals)
+    #         # s = metrics["Sharpe Ratio"]
+    #         # if metrics["Total Trades"] == 0 or np.isnan(s):
+    #         #     return 1e6
+    #         # return -s if not np.isnan(s) else np.inf
+
+    #     # Use bounds scaled by the estimated OU sigma
+    #     bounds = [(-2 * self.ou_sigma, 0), (0, 2 * self.ou_sigma)]
+    #     result = minimize(
+    #         objective, x0=[-1 * self.ou_sigma, 1 * self.ou_sigma], bounds=bounds
+    #     )
+    #     return result.x
 
     def generate_trading_signals(
         self, stop_loss: float = None, take_profit: float = None
@@ -601,10 +748,13 @@ class MultiAssetReversion:
         and then compare it to the optimal thresholds (stop_loss and take_profit) which are in the same units.
         Optional ADF and trend filters are applied.
         """
-        if not self.mean_reverting:
-            # logger.info("Asset is not mean reverting. Skipping signal generation.")
-            return pd.DataFrame(index=self.prices_df.index, columns=["Position", "Ticker", "Entry Price", "Exit Price"])
-        
+        # if not self.mean_reverting:
+        #     # logger.info("Asset is not mean reverting. Skipping signal generation.")
+        #     return pd.DataFrame(
+        #         index=self.prices_df.index,
+        #         columns=["Position", "Ticker", "Entry Price", "Exit Price"],
+        #     )
+
         if stop_loss is None or take_profit is None:
             stop_loss, take_profit = self.calculate_optimal_bounds
 
@@ -702,6 +852,52 @@ class MultiAssetReversion:
         signals["Exit Price"] = signals["Exit Price"].ffill()
         return signals
 
+    def simulate_jump_diffusion(self, T=1000):
+        """
+        Simulate a jump-diffusion OU process for the spread:
+            dX_t = -kappa (X_t - mu) dt + sigma dW_t + dJ_t
+        in discrete form over T steps (e.g. daily).
+        """
+        if not self.use_jump_diffusion:
+            # Fall back to pure OU simulation
+            return self.simulate_ou(T)
+
+        # Unpack parameters
+        kappa = self.ou_kappa
+        mu = self.ou_mu
+        sigma = self.ou_sigma
+        lambd = self.jump_lambda
+        j_mean = self.jump_mean
+        j_std = self.jump_std
+
+        X = np.zeros(T)
+        # start from mu or from last observed spread
+        X[0] = mu
+
+        for t in range(1, T):
+            drift = -kappa * (X[t - 1] - mu)
+            diffusion = sigma * np.random.randn()
+            # Poisson number of jumps
+            n_jumps = np.random.poisson(lambd)
+            jump_sum = 0.0
+            if n_jumps > 0:
+                jump_sum = np.sum(np.random.normal(j_mean, j_std, size=n_jumps))
+            X[t] = X[t - 1] + drift + diffusion + jump_sum
+
+        return pd.Series(X, index=range(T))
+
+    def simulate_ou(self, T=1000):
+        """
+        Fallback pure OU simulation if jump diffusion is disabled.
+        """
+        X = np.zeros(T)
+        X[0] = self.ou_mu
+        for t in range(1, T):
+            drift = -self.ou_kappa * (X[t - 1] - self.ou_mu)
+            diffusion = self.ou_sigma * np.random.randn()
+            X[t] = X[t - 1] + drift + diffusion
+        return pd.Series(X, index=range(T))
+
     def simulate_strategy(self, signals: pd.DataFrame) -> tuple:
         """
         Simulate performance using numeric signals.
@@ -719,16 +915,66 @@ class MultiAssetReversion:
         }
         return strat_returns, metrics
 
-    def optimize_and_trade(self):
+    def simulate_strategy_on_simulated_path(
+        self, T=1000, stop_loss: float = None, take_profit: float = None
+    ):
+        """
+        1) Generate a synthetic spread path from jump-diffusion (or pure OU).
+        2) Convert it into signals (like your 'generate_trading_signals').
+        3) Compute PnL and Sharpe ratio from those signals.
+        """
+        simulated_spread = self.simulate_jump_diffusion(T=T)
+
+        # Temporarily override the class spread_series for signal generation
+        original_spread = self.spread_series
+        self.spread_series = simulated_spread
+
+        # Generate signals with your existing function
+        signals = self.generate_trading_signals(
+            stop_loss=stop_loss, take_profit=take_profit
+        )
+
+        # Run backtest
+        results, metrics = self.simulate_strategy(signals)
+
+        # Restore original spread
+        self.spread_series = original_spread
+
+        return results, metrics
+
+    def optimize_and_trade(self, mc_runs=10):
         stop_loss, take_profit = self.calculate_optimal_bounds
         logger.info(
             f"Optimal stop_loss: {stop_loss:.4f}, take_profit: {take_profit:.4f}"
         )
-        signals = self.generate_trading_signals(stop_loss, take_profit)
-        returns, metrics = self.simulate_strategy(signals)
+        # Evaluate performance on the actual spread data.
+        sharpe_list = []
+        total_trades_list = []
+        win_rate_list = []
+        avg_return_list = []
+        signals_list = []
+
+        for _ in range(mc_runs):
+            signals = self.generate_trading_signals(stop_loss, take_profit)
+            _, metrics = self.simulate_strategy(signals)
+            sharpe_list.append(metrics["Sharpe Ratio"])
+            total_trades_list.append(metrics["Total Trades"])
+            win_rate_list.append(metrics["Win Rate"])
+            avg_return_list.append(metrics["Avg Return"])
+            signals_list.append(signals)
+
+        metrics = {
+            "Total Trades": np.mean(total_trades_list),
+            "Sharpe Ratio": np.mean(sharpe_list),
+            "Win Rate": np.mean(win_rate_list),
+            "Avg Return": np.mean(avg_return_list),
+        }
+
         hedge_ratios_series = pd.Series(
             self.hedge_ratios, index=self.prices_df.columns
         ).fillna(0)
+        signals = self.generate_trading_signals(stop_loss, take_profit)
+        # returns, metrics = self.simulate_strategy(signals)
         return {
             "Optimal Stop-Loss": stop_loss,
             "Optimal Take-Profit": take_profit,
