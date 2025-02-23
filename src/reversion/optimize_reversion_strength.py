@@ -74,10 +74,11 @@ def tune_reversion_alpha(
     objective_weights: dict,
     n_trials: int = 50,
     patience: int = 10,  # Stop early if no improvement
+    hv_window: int = 50,
 ) -> float:
 
     # Compute historical realized volatility
-    historical_vol = returns_df.rolling(window=180).std().mean().mean()
+    historical_vol = returns_df.rolling(window=hv_window).std().mean().mean()
 
     study = optuna.create_study(
         direction="maximize",
