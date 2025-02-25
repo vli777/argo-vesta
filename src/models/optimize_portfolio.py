@@ -331,7 +331,7 @@ def optimize_weights_objective(
         else:
             cb = callback
 
-        result = dual_annealing(penalized_obj, bounds=bounds, maxiter=2000, callback=cb)
+        result = dual_annealing(penalized_obj, bounds=bounds, maxiter=1000, callback=cb)
         if not result.success:
             raise ValueError("Dual annealing optimization failed: " + result.message)
         final_solution = result.x
