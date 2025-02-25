@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Dict
+from typing import Any, Callable, Optional, Union, Dict
 from scipy.optimize import minimize
 import pyomo.environ as pyo
 from pyomo.opt import TerminationCondition, SolverStatus
@@ -10,6 +10,7 @@ from models.pyomo_objective_models import (
     build_omega_model,
     build_sharpe_model,
 )
+from models.optimization_plot import plot_global_optimization
 from utils import logger
 from utils.performance_metrics import conditional_var
 
@@ -58,6 +59,7 @@ def optimize_weights_objective(
     apply_constraints: bool = False,
     use_annealing: bool = False,  # New flag to choose dual annealing
     penalty_weight: float = 1e6,  # Penalty multiplier for constraint violations
+    callback: Optional[Callable[[np.ndarray, float, Any], bool]] = None,
 ) -> np.ndarray:
     """
     Optimize portfolio weights using a unified, robust interface.
@@ -85,7 +87,7 @@ def optimize_weights_objective(
         solver_method (str): Solver method for use with scipy minimize (default "SQSLP").
         initial_guess (np.ndarray): Initial estimates for the optimal portfolio weights.
         apply_constraints (bool): Whether to add risk constraints (volatility and CVaR).
-
+        callback (callable): Optional callback (for recording optimization search path).
 
     Returns:
         np.ndarray: Optimized portfolio weights.
@@ -213,7 +215,7 @@ def optimize_weights_objective(
             cvar_limit=cvar_limit if apply_constraints else None,
             alpha=alpha,
         )
-        # Since the transformed omega formulation is linear, you could use an LP solver like CBC.
+        # Since the transformed omega formulation is linear, use an LP solver like CBC.
         solver = pyo.SolverFactory(
             "cbc",
             executable="H:/Solvers/Cbc-releases.2.10.12-w64-msvc17-md/bin/cbc.exe",
@@ -305,9 +307,9 @@ def optimize_weights_objective(
     ):
         init_weights *= 0.95
 
-    # If using dual annealing, build a penalized objective and call dual_annealing.
+    # --- Dual Annealing Branch ---
     if use_annealing:
-
+        # Define a penalty for constraint violations.
         def penalty(w):
             pen = penalty_weight * abs(np.sum(w) - target_sum)
             for con in constraints:
@@ -320,12 +322,23 @@ def optimize_weights_objective(
         def penalized_obj(w):
             return chosen_obj(w) + penalty(w)
 
-        result = dual_annealing(penalized_obj, bounds=bounds, maxiter=1000)
+        if callback is None:
+
+            def default_callback(x, f, context):
+                return False
+
+            cb = default_callback
+        else:
+            cb = callback
+
+        result = dual_annealing(penalized_obj, bounds=bounds, maxiter=2000, callback=cb)
         if not result.success:
             raise ValueError("Dual annealing optimization failed: " + result.message)
-        return result.x
+        final_solution = result.x
 
-    # Otherwise use the standard local solver.
+        return final_solution
+
+    # --- Standard Local Solver Branch ---
     result = minimize(
         chosen_obj,
         init_weights,

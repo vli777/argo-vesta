@@ -108,6 +108,7 @@ def run_optimization_and_save(
         max_gross_exposure = config.max_gross_exposure
         risk_free_rate = config.risk_free_rate
         risk_free_rate_log_daily = np.log(1 + risk_free_rate) / trading_days_per_year
+        use_annealing = config.use_global_optimization
 
         model_args = {
             "returns": asset_returns,
@@ -116,6 +117,7 @@ def run_optimization_and_save(
             "allow_short": allow_short,
             "max_gross_exposure": max_gross_exposure,
             "risk_free_rate": risk_free_rate_log_daily,
+            "use_annealing": use_annealing,
         }
 
         try:

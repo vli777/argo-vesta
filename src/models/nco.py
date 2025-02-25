@@ -4,7 +4,8 @@ from typing import Optional, Union, Dict
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_samples
 
-from models.optimize_portfolio import optimize_weights_objective
+from models.optimize_portfolio import estimated_portfolio_volatility, optimize_weights_objective
+from models.optimization_plot import plot_global_optimization
 from utils.logger import logger
 
 
@@ -29,6 +30,7 @@ def nested_clustered_optimization(
     order: int = 3,
     target_sum: float = 1.0,
     risk_free_rate: float = 0.0,
+    use_annealing: bool = False
 ) -> pd.Series:
     """
     Perform Nested Clustered Optimization with a flexible objective.
@@ -47,46 +49,43 @@ def nested_clustered_optimization(
         order (int): Order for downside risk metrics.
         target_sum (float): Sum of weights (default 1.0).
         risk_free_rate (float): Risk free rate (default 0.0).
+        use_annealing (bool): Use dual annealing to search for global optima.
 
     Returns:
         pd.Series: Final portfolio weights.
     """
     # Filter assets with enough historical data
-    min_data_threshold = cov.shape[0] * 0.5  # At least 50% valid history
+    min_data_threshold = cov.shape[0] * 0.5  
     valid_assets = cov.index[cov.notna().sum(axis=1) >= min_data_threshold]
-
     if len(valid_assets) < 2:
-        logger.warning(
-            "Not enough valid assets after filtering. Skipping optimization."
-        )
-        return pd.Series(dtype=float)  # Return an empty portfolio
-
+        logger.warning("Not enough valid assets after filtering. Skipping optimization.")
+        return pd.Series(dtype=float)
     cov = cov.loc[valid_assets, valid_assets]
     if mu is not None:
         mu = mu.loc[valid_assets]
     if returns is not None:
         returns = returns[valid_assets]
-
     if target is None and returns is not None:
         target = max(risk_free_rate, np.percentile(returns.to_numpy().flatten(), 30))
     else:
         target = risk_free_rate
 
-    # Create the correlation matrix and cluster the assets
+    # --- Cluster assets ---
     corr = cov_to_corr(cov)
     labels = cluster_kmeans(corr, max_clusters)
     unique_clusters = np.unique(labels)
 
-    # Intra-cluster optimization: optimize weights for assets within each cluster
-    intra_weights = pd.DataFrame(
-        0, index=cov.index, columns=unique_clusters, dtype=float
-    )
+    # --- Intra-cluster optimization (per cluster) ---
+    intra_search_histories = {} 
+    intra_weights = pd.DataFrame(0, index=cov.index, columns=unique_clusters, dtype=float)
+    
     for cluster in unique_clusters:
         cluster_assets = cov.index[labels == cluster]
         cluster_cov = cov.loc[cluster_assets, cluster_assets]
-        cluster_mu = None if mu is None else mu.loc[cluster_assets]
-        cluster_returns = None if returns is None else returns[cluster_assets]
-
+        cluster_mu = mu.loc[cluster_assets] if mu is not None else None
+        cluster_returns = returns[cluster_assets] if returns is not None else None
+        
+        intra_search_histories[cluster] = []
         weights = optimize_weights_objective(
             cluster_cov,
             mu=cluster_mu,
@@ -98,27 +97,26 @@ def nested_clustered_optimization(
             allow_short=allow_short,
             max_gross_exposure=max_gross_exposure,
             target_sum=target_sum,
+            use_annealing=use_annealing,
+            callback=lambda x, f, ctx, cl=cluster: intra_search_histories[cl].append(x.copy())
         )
         intra_weights.loc[cluster_assets, cluster] = weights
 
-    # Inter-cluster optimization: optimize how to weight each cluster
+    # --- Inter-cluster (global) optimization ---
     reduced_cov = intra_weights.T @ cov @ intra_weights
-    reduced_mu = None if mu is None else intra_weights.T @ mu
-
-    # For historical returns aggregation, build a DataFrame where each column is the cluster's time series.
-    reduced_returns = None
+    reduced_mu = (intra_weights.T @ mu) if mu is not None else None
     if returns is not None:
-        reduced_returns = pd.DataFrame(
-            {
-                cluster: (
-                    returns.loc[:, intra_weights.index]
-                    .mul(intra_weights[cluster], axis=1)
-                    .sum(axis=1)
-                )
-                for cluster in unique_clusters
-            }
-        )
+        reduced_returns = pd.DataFrame({
+            cluster: (returns.loc[:, intra_weights.index]
+                      .mul(intra_weights[cluster], axis=1)
+                      .sum(axis=1))
+            for cluster in unique_clusters
+        })
+    else:
+        reduced_returns = None
 
+    # Here we record search history only for the global (inter-cluster) stage.
+    inter_search_history = []  # to record candidate vectors during annealing
     inter_weights = pd.Series(
         optimize_weights_objective(
             reduced_cov,
@@ -131,18 +129,45 @@ def nested_clustered_optimization(
             allow_short=allow_short,
             max_gross_exposure=max_gross_exposure,
             target_sum=target_sum,
+            use_annealing=use_annealing,
+            callback=lambda x, f, ctx: inter_search_history.append(x.copy())
         ),
         index=unique_clusters,
     )
 
-    # Combine intra- and inter-cluster weights to get the final portfolio allocation
+    # --- Combine intra- and inter-cluster weights to get final portfolio weights ---
     final_weights = intra_weights.mul(inter_weights, axis=1).sum(axis=1)
-    final_weights = final_weights[
-        final_weights.abs() >= 0.01
-    ]  # Apply a minimum weight threshold
-
+    final_weights = final_weights[final_weights.abs() >= 0.01]
     if not isinstance(final_weights, pd.Series):
         final_weights = pd.Series(final_weights, index=intra_weights.index)
+
+    overall_search_history = []
+    for candidate in inter_search_history:
+        # candidate is an array of length equal to number of clusters.
+        # Compute overall candidate: for each asset, its weight is:
+        #   overall_weight = sum_{cluster in unique_clusters} (intra_weights[asset, cluster] * candidate[cluster])
+        overall_candidate = (intra_weights * candidate).sum(axis=1)
+        overall_search_history.append(overall_candidate.values)
+    overall_search_history = np.array(overall_search_history)
+
+    # --- Define Overall Objective Function ---
+    def overall_objective(w):
+        # Compute portfolio Sharpe (here negative Sharpe, which we'll flip)
+        port_return = w @ mu
+        port_vol = estimated_portfolio_volatility(w, cov.to_numpy())
+        return -port_return / port_vol if port_vol > 0 else 1e6
+
+    # --- Plot Overall Global Optimization Contour ---
+    # Here we use our Plotly function to plot the 3D contour of the overall objective.
+    fig = plot_global_optimization(
+        search_history=overall_search_history,
+        final_solution=final_weights.values,
+        objective_function=overall_objective,
+        grid_resolution=50,
+        title="Overall Max Sharpe Contour for Portfolio",
+        flip_objective=True  # flip so that maximum Sharpe appears as a peak
+    )
+    fig.show()
 
     return final_weights
 
