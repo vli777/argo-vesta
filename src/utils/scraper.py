@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import List
 
+# not working due to rate limiting
 
 def get_etf_holdings(etf_symbol: str) -> List[str]:
     """

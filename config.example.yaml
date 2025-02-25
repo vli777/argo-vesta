@@ -10,7 +10,6 @@ models:
     # - str  # Other model names
 
 download: bool # Whether to download data
-include_etf_top_holdings: bool # Whether to include the top holdings of etf inputs
 min_weight: float # Minimum weight for inclusion in final weights
 max_weight: float # Maximum weight allowed for any individual hodling
 portfolio_max_size: int # Maximum number of assets in the portfolio, default vol limit^2

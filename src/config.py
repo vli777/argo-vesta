@@ -13,7 +13,6 @@ class Config:
     input_files: List[str]
 
     download: bool
-    include_etf_top_holdings: bool
     min_weight: float
     max_weight: float
     portfolio_max_size: int
@@ -73,7 +72,6 @@ class Config:
             input_files=config_dict["input_files"],
             models=config_dict["models"],
             download=config_dict.get("download", False),
-            include_etf_top_holdings=config_dict.get("include_etf_top_holdings", False),
             min_weight=config_dict.get("min_weight", 0.01),
             max_weight=config_dict.get("max_weight", 1.0),
             portfolio_max_size=config_dict.get("portfolio_max_size"),
