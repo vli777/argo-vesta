@@ -20,6 +20,7 @@ def plot_reversion_params(data_dict: dict):
     fig = make_subplots(
         rows=1,
         cols=2,
+        specs=[[{"type": "scatter3d"}, {"type": "scatter3d"}]],
         subplot_titles=("Positive Z Thresholds", "Negative Z Thresholds"),
         horizontal_spacing=0.1,
     )
