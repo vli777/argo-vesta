@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 import pandas as pd
 import numpy as np
@@ -14,6 +15,9 @@ from utils.logger import logger
 from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_pickle
 
 
+CACHE_EXPIRATION_DAYS = 90  # Cache expires every quarter (90 days)
+
+
 def remove_anomalous_stocks(
     returns_df: pd.DataFrame,
     weight_dict: Optional[Dict[str, float]] = None,
@@ -27,8 +31,10 @@ def remove_anomalous_stocks(
     Filters out stocks with anomalous returns using Isolation Forest (IF),
     Kalman Filter (KF), or fixed Z-score. Uses per-ticker optimization and caches
     method-specific parameters as well as a list of stocks previously flagged as anomalous.
-    The anomalous stock list is saved to 'anomalous_assets.pkl' so that in future runs,
+    The anomalous stock list is saved to 'optuna_cache/anomalous_assets.pkl' so that in future runs,
     stocks already determined to be anomalous can be skipped regardless of the filter used.
+
+    The cache for anomalous stocks expires every quarter (90 days).
 
     Args:
         returns_df (pd.DataFrame): DataFrame where each column corresponds to a stock's returns.
@@ -63,24 +69,30 @@ def remove_anomalous_stocks(
         {} if reoptimize else load_parameters_from_pickle(cache_filename) or {}
     )
 
-    # Load the anomalous assets cache (list of stocks already flagged as anomalous) regardless of detection method.
+    # Load the anomalous assets cache with expiration check.
     anomalous_cache_filename = "optuna_cache/anomalous_assets.pkl"
-    anomalous_cache: List[str] = (
-        []
+    anomalous_cache_data: Dict[str, Any] = (
+        {}
         if reoptimize
-        else load_parameters_from_pickle(anomalous_cache_filename) or []
+        else load_parameters_from_pickle(anomalous_cache_filename) or {}
     )
 
+    # Check if the cache is expired
+    cache_timestamp = anomalous_cache_data.get("timestamp", datetime.min)
+    if datetime.now() - cache_timestamp > timedelta(days=CACHE_EXPIRATION_DAYS):
+        anomalous_cache: List[str] = []
+        print("Anomalous cache expired. Starting fresh.")
+    else:
+        anomalous_cache: List[str] = anomalous_cache_data.get("anomalous_stocks", [])
+
     def process_ticker(stock: str) -> Optional[Dict[str, Any]]:
-        # If the stock is already flagged as anomalous, skip processing.
+        # If the stock is already flagged as anomalous and we're not reoptimizing,
+        # try to return its full ticker info from the tuning cache.
         if (stock in anomalous_cache) and not reoptimize:
-            return {
-                "stock": stock,
-                "threshold": None,
-                "anomaly_flags": None,
-                "estimates": None,
-                "anomaly_fraction": 1.0,
-            }
+            ticker_info = tuning_cache.get(stock)
+            if ticker_info is not None:
+                return ticker_info
+            # If ticker info is missing, fall through to reprocessing.
 
         series = returns_df[stock].dropna()
         if series.empty:
@@ -89,12 +101,16 @@ def remove_anomalous_stocks(
 
         if use_isolation_forest:
             if stock in tuning_cache and not reoptimize:
-                ticker_info = tuning_cache[stock]
+                ticker_info = tuning_cache.get(stock, {})
             else:
                 ticker_info = optimize_threshold_for_ticker(
                     series, weight_dict, stock, method, contamination=contamination_val
                 )
-            thresh = ticker_info["threshold"]
+            # Ensure the threshold is set; default to 6.0 if missing.
+            thresh = ticker_info.get("threshold", 6.0)
+            if thresh is None:
+                logger.error(f"Threshold for stock {stock} is None. Defaulting to 6.0.")
+                thresh = 6.0
             anomaly_flags, estimates = apply_isolation_forest(
                 series, threshold=thresh, contamination=contamination_val
             )
@@ -138,8 +154,11 @@ def remove_anomalous_stocks(
     else:
         all_anomalous = new_anomalous_stocks
 
-    # Save the updated list of anomalous stocks.
-    save_parameters_to_pickle(all_anomalous, anomalous_cache_filename)
+    # Save the updated list of anomalous stocks with a timestamp.
+    save_parameters_to_pickle(
+        {"timestamp": datetime.now(), "anomalous_stocks": all_anomalous},
+        anomalous_cache_filename,
+    )
 
     valid_tickers = [
         stock for stock in returns_df.columns if stock not in all_anomalous
