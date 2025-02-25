@@ -82,6 +82,16 @@ def plot_reversion_params(data_dict: dict):
     )
 
     fig.update_layout(
+        scene=dict(
+            xaxis_title="Daily Window",
+            yaxis_title="Weekly Window",
+            zaxis_title="Positive Z Threshold",
+        ),
+        scene2=dict(
+            xaxis_title="Daily Window",
+            yaxis_title="Weekly Window",
+            zaxis_title="Negative Z Threshold",
+        ),
         title="3D Scatter Plot of Clusters: Positive and Negative Z Thresholds",
         height=800,
         width=1600,
