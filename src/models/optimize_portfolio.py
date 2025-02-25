@@ -27,13 +27,15 @@ def empirical_lpm(portfolio_returns, target=0, order=3):
     Returns:
         The LPM of the specified order.
     """
+    portfolio_returns = np.asarray(portfolio_returns)
     diff = np.maximum(target - portfolio_returns, 0)
     return np.mean(diff**order)
 
 
 def estimated_portfolio_volatility(w: np.ndarray, cov: np.ndarray) -> float:
     """Computes portfolio volatility (standard deviation) given weights and covariance."""
-    return np.sqrt(w.T @ cov @ w)
+    cov_arr = cov.to_numpy() if isinstance(cov, pd.DataFrame) else cov
+    return float(np.sqrt(w.T @ cov_arr @ w))
 
 
 def optimize_weights_objective(
@@ -110,19 +112,31 @@ def optimize_weights_objective(
 
     # Define CVaR constraint using the conditional_var function.
     def cvar_constraint(w):
-        port_returns = returns @ w  # returns is (T x n) and w is (n,)
+        # Ensure returns is a NumPy array before matrix multiplication:
+        port_returns = (
+            returns.to_numpy() if isinstance(returns, pd.DataFrame) else returns
+        ) @ w
         cvar_value = conditional_var(pd.Series(port_returns), alpha)
         # Constraint: cvar_limit - computed CVaR must be >= 0.
+        # Convert to float if needed:
+        cvar_value = float(cvar_value)
         return cvar_limit - cvar_value
 
     def vol_constraint(w):
-        return vol_limit - estimated_portfolio_volatility(w, cov)
+        port_vol = estimated_portfolio_volatility(w, cov)
+        # Ensure port_vol is a scalar, for example by taking the first element if it's a Series
+        if isinstance(port_vol, pd.Series):
+            port_vol = port_vol.iloc[0]
+        return vol_limit - port_vol
 
     def gross_exposure(w):
-        return max_gross_exposure - np.sum(np.abs(w))
+        return float(max_gross_exposure - np.sum(np.abs(np.asarray(w))))
 
     constraints = [
-        {"type": "eq", "fun": lambda w: np.sum(w) - target_sum},
+        {
+            "type": "eq",
+            "fun": lambda w: float(np.sum(np.asarray(w), axis=0)) - target_sum,
+        },
     ]
 
     # Add CVaR and max volatility
@@ -144,7 +158,8 @@ def optimize_weights_objective(
         if n < 50:
             # logger.info("Optimizing for max Sharpe...")
             def obj(w: np.ndarray) -> float:
-                port_return = w @ mu
+                mu_arr = mu.to_numpy() if isinstance(mu, pd.Series) else mu
+                port_return = float(np.dot(w, mu_arr))
                 port_vol = estimated_portfolio_volatility(w, cov)
                 return -port_return / port_vol if port_vol > 0 else 1e6
 
@@ -243,10 +258,10 @@ def optimize_weights_objective(
             )
 
         def obj(w: np.ndarray) -> float:
-            port_returns = returns.values @ w
+            port_returns = returns.to_numpy() @ w
             cumulative_return = np.prod(1 + port_returns) - 1
             port_mean = np.mean(port_returns)
-            port_vol = np.sqrt(w.T @ cov @ w)
+            port_vol = estimated_portfolio_volatility(w, cov)
             lpm = empirical_lpm(port_returns, target=target, order=order)
             kappa_val = (
                 (port_mean - target) / (lpm ** (1.0 / order)) if lpm > 1e-8 else -1e6
@@ -262,8 +277,9 @@ def optimize_weights_objective(
     else:
 
         def obj(w: np.ndarray) -> float:
-            port_return = w @ mu
-            port_vol = np.sqrt(w.T @ cov @ w)
+            mu_arr = mu.to_numpy() if isinstance(mu, pd.Series) else mu
+            port_return = float(np.dot(w, mu_arr))
+            port_vol = estimated_portfolio_volatility(w, cov)
             return -port_return / port_vol if port_vol > 0 else 1e6
 
         chosen_obj = obj
@@ -311,10 +327,12 @@ def optimize_weights_objective(
     if use_annealing:
         # Define a penalty for constraint violations.
         def penalty(w):
-            pen = penalty_weight * abs(np.sum(w) - target_sum)
+            pen = penalty_weight * abs(
+                float(np.sum(np.asarray(w), axis=0)) - target_sum
+            )
             for con in constraints:
                 if con["type"] == "ineq":
-                    val = con["fun"](w)
+                    val = float(con["fun"](w))
                     if val < 0:
                         pen += penalty_weight * abs(val)
             return pen
