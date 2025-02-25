@@ -19,6 +19,7 @@ portfolio_risk_priority: str # Prioritize 'vol' or 'cvar' while allowing the oth
 risk_free_rate: float # e.g. T-bill return, default 0.0
 allow_short: bool # Whether to allow shorting (WIP)
 max_gross_exposure: float # Portfolio max gross exposure constraint when shorting is enabled
+use_global_optimization: bool # Uses metaheuristics to search for a global optimum 
 
 plot_daily_returns: bool # Whether to plot daily returns
 plot_cumulative_returns: bool # Whether to plot cumulative returns

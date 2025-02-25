@@ -36,6 +36,7 @@ class Config:
     reversion_type: Optional[str]  # Can be "ou", "z", or None
 
     optimization_objective: Optional[str]
+    use_global_optimization: bool
 
     test_mode: bool
     test_data_visible_pct: float
@@ -93,6 +94,7 @@ class Config:
             reversion_type=reversion_type,  # Defaults to "ou" if enabled, else None
             optimization_objective=config_dict.get("optimization_objective")
             or "sharpe",
+            use_global_optimization=config_dict.get("use_global_optimization", False),
             test_mode=config_dict.get("test_mode", False),
             test_data_visible_pct=config_dict.get("test_data_visible_pct", 0.1),
         )
