@@ -106,7 +106,9 @@ def apply_mean_reversion(
         signals=signals_dict,
         ticker_params=ticker_params,
     )
-    plot_reversion_signals(composite_signals)    
+
+    if config.plot_reversion:
+        plot_reversion_signals(composite_signals)
     # logger.info(f"composite_signals: {composite_signals}")
     # 8. Propagate signals by similarity (if desired)
     group_mapping = group_ticker_params_by_cluster(ticker_params)
@@ -116,7 +118,7 @@ def apply_mean_reversion(
         returns_df=returns_df,
         signal_strength=0.88,
         lw_threshold=50,
-    )    
+    )
     # logger.info(
     #     f"updated_composite_signals after propagation: {updated_composite_signals}"
     # )
