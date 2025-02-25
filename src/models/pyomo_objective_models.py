@@ -9,6 +9,7 @@ def build_sharpe_model(
     mu: np.ndarray,
     target_sum: float,
     max_weight: float = 0.2,
+    gross_target: float = 1.3,
     allow_short: bool = False,
     vol_limit: float = None,  # Optional volatility constraint
     cvar_limit: float = None,  # Optional CVaR constraint (upper bound on CVaR)
@@ -79,7 +80,6 @@ def build_sharpe_model(
             model.assets, rule=abs_constraint_rule_neg
         )
         # Now, enforce gross exposure constraint (e.g., 1.3)
-        gross_target = 1.3
         model.gross_exposure = pyo.Constraint(
             expr=sum(model.z[i] for i in model.assets) <= gross_target
         )

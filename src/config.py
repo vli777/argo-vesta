@@ -22,6 +22,7 @@ class Config:
     portfolio_risk_priority: str
     risk_free_rate: float
     allow_short: bool
+    max_gross_exposure: float
 
     plot_daily_returns: bool
     plot_cumulative_returns: bool
@@ -81,6 +82,7 @@ class Config:
             portfolio_risk_priority=config_dict.get("portfolio_risk_priority", "both"),
             risk_free_rate=config_dict.get("risk_free_rate", 0.0),
             allow_short=config_dict.get("allow_short", False),
+            max_gross_exposure=config_dict.get("max_gross_exposure", 1.3),
             plot_daily_returns=config_dict.get("plot_daily_returns", False),
             plot_cumulative_returns=config_dict.get("plot_cumulative_returns", False),
             plot_contribution=config_dict.get("plot_contribution", False),

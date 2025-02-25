@@ -1,8 +1,8 @@
 import math
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import plotly.express as px
 
 
 def plot_all_ticker_signals(
@@ -24,6 +24,9 @@ def plot_all_ticker_signals(
         title (str, optional): Plot title.
     """
     # Define updated color palette
+    px_palette = px.colors.qualitative.Plotly
+    sell_color = px_palette[1]
+    buy_color = px_palette[2]
     palette = {
         "price": "#00ADB5",  # teal
         "zscore": "#EEEEEE",  # light gray
@@ -79,7 +82,7 @@ def plot_all_ticker_signals(
                     y=aligned_price_series.loc[buy_signals.index],
                     mode="markers",
                     name="Buy Signal Price",
-                    marker=dict(symbol="triangle-up", color="#00cc33", size=10),
+                    marker=dict(symbol="triangle-up", color=buy_color, size=10),
                     hovertemplate="%{y}",
                     showlegend=(i == 0),
                     zorder=99,
@@ -97,7 +100,7 @@ def plot_all_ticker_signals(
                     y=aligned_price_series.loc[sell_signals.index],
                     mode="markers",
                     name="Sell Signal Price",
-                    marker=dict(symbol="triangle-down", color="red", size=10),
+                    marker=dict(symbol="triangle-down", color=sell_color, size=10),
                     hovertemplate="%{y}",
                     showlegend=(i == 0),
                     zorder=99,

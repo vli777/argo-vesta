@@ -2,17 +2,17 @@ from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
 
-from reversion.mean_reversion import apply_mean_reversion
+from reversion.apply_mean_reversion import apply_mean_reversion
 from result_output import build_final_result_dict, compute_performance_results
 from config import Config
 from stat_arb.plot_ou_signals import plot_all_ticker_signals
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
 from stat_arb.multi_asset_plots import (
-    plot_multi_asset_signals,
+    plot_multi_ou_signals,
 )
 from stat_arb.multi_asset_reversion import MultiAssetReversion
 from stat_arb.portfolio_allocator import PortfolioAllocator
-from stat_arb.single_asset_reversion import OUHeatPotential
+from stat_arb.single_asset_reversion import SingleAssetReversion
 from utils.portfolio_utils import normalize_weights
 from utils.logger import logger
 
@@ -105,7 +105,7 @@ def apply_ou_reversion(
 
     # --- Prepare individual OU strategies for each ticker
     ou_strategies = {
-        ticker: OUHeatPotential(data_df[ticker], returns_df[ticker])
+        ticker: SingleAssetReversion(data_df[ticker], returns_df[ticker])
         for ticker in data_df.columns
     }
 
@@ -160,9 +160,6 @@ def apply_ou_reversion(
         data_df.pct_change().fillna(0).mul(weights_series, axis=1).sum(axis=1)
     )
 
-    # Compute the aggregate price series for the basket
-    price_series = (data_df * weights_series).sum(axis=1)
-
     # Compute multi-asset returns using the signals from the multi-asset strategy
     multi_asset_returns = (
         multi_asset_results["Signals"]["Position"].shift(1) * basket_returns
@@ -178,13 +175,16 @@ def apply_ou_reversion(
         plot_all_ticker_signals(
             price_data=filtered_price_data,
             signal_data=ou_signals,
-            title="Mean Reversion Trading Signals Across All Tickers",
         )
-        # plot_multi_asset_signals(
-        #     price_series=price_series,
-        #     multi_asset_signals=multi_asset_results["Signals"],
-        #     title="Multi-Asset Mean Reversion Trading Signals",
-        # )
+        signals = multi_asset_strategy.generate_trading_signals()
+        stop_loss, take_profit = multi_asset_strategy.calculate_optimal_bounds
+        fig = plot_multi_ou_signals(
+            mar=multi_asset_strategy,
+            signals=signals,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+        fig.show()
 
     latest_ou_signals = {}
     for ticker, ou in ou_strategies.items():
@@ -199,7 +199,7 @@ def apply_ou_reversion(
         current_price = ou.prices.iloc[-1]
         current_deviation = np.log(current_price) - ou.mu
         # Also get the optimal thresholds for this asset:
-        stop_loss, take_profit = ou.calculate_optimal_bounds()
+        stop_loss, take_profit = ou.calculate_optimal_bounds
         # Save a richer dictionary per ticker:
         latest_ou_signals[ticker] = {
             "signal": last_signal,

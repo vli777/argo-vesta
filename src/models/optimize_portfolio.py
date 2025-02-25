@@ -43,6 +43,7 @@ def optimize_weights_objective(
     min_weight: Optional[float] = None,
     max_weight: Optional[float] = None,
     allow_short: bool = False,
+    max_gross_exposure: float = 1.3,
     target_sum: float = 1.0,
     # Constraint: maximum allowable portfolio volatility e.g., 0.15 for 15% vol
     vol_limit: Optional[float] = None,
@@ -69,6 +70,7 @@ def optimize_weights_objective(
         min_weight (Optional[float]): Minimum weight per asset (for long-only). If None, defaults to 0.0.
         max_weight (float): Maximum weight per asset (default 1.0).
         allow_short (bool): Allow short positions (default False).
+        max_gross_exposure (float): Maximum gross exposure when short positions are allowed.
         target_sum (float): Sum of weights (default 1.0).
         vol_limit (float): Maximum acceptable portfolio volatility (default 30%).
         cvar_limit (float): Maximum acceptable CVaR value (default -2%).
@@ -111,7 +113,7 @@ def optimize_weights_objective(
         return vol_limit - estimated_portfolio_volatility(w, cov)
 
     def gross_exposure(w):
-        return 1.3 - np.sum(np.abs(w))
+        return max_gross_exposure - np.sum(np.abs(w))
 
     constraints = [
         {"type": "eq", "fun": lambda w: np.sum(w) - target_sum},
@@ -152,11 +154,13 @@ def optimize_weights_objective(
                 target_sum=target_sum,
                 max_weight=max_weight,
                 allow_short=allow_short,
+                gross_target=max_gross_exposure,
                 vol_limit=vol_limit if apply_constraints else None,
                 cvar_limit=cvar_limit if apply_constraints else None,
                 min_return=min_return if apply_constraints else None,
                 alpha=alpha,
             )
+
             solver = pyo.SolverFactory(
                 "ipopt",
                 executable="H:/Solvers/Ipopt-3.14.17-win64-msvs2022-md/bin/ipopt.exe",
@@ -266,10 +270,37 @@ def optimize_weights_objective(
 
         chosen_obj = obj
 
-    # Set initial weights (equal allocation)
-    init_weights = (
-        initial_guess if initial_guess is not None else np.full(n, target_sum / n)
-    )
+    # Check for infeasibility and adjust weight constraints if needed
+    if min_weight is not None and min_weight * n > target_sum:
+        logger.warning(
+            f"Relaxing min_weight from {min_weight} to {target_sum / n:.4f} to meet feasibility."
+        )
+        min_weight = target_sum / n
+
+    if max_weight is not None and max_weight * n < target_sum:
+        logger.warning(
+            f"Relaxing max_weight from {max_weight} to {target_sum / n:.4f} to meet feasibility."
+        )
+        max_weight = target_sum / n
+
+    # Initialize weights considering relaxed min_weight and max_weight constraints
+    if initial_guess is not None:
+        # Clip initial guess to ensure it is within bounds
+        init_weights = np.clip(initial_guess, lower_bound, max_weight)
+    else:
+        if allow_short:
+            # Randomly initialize weights allowing for short positions
+            init_weights = np.random.uniform(lower_bound, max_weight, size=n)
+            # Normalize to sum to target_sum, maintaining potential short positions
+            init_weights /= np.sum(np.abs(init_weights))
+            init_weights *= target_sum
+        else:
+            # Uniform initialization for long-only portfolios
+            init_weights = np.full(n, target_sum / n)
+            # Ensure weights are within specified bounds
+            if min_weight is not None:
+                init_weights = np.maximum(init_weights, min_weight)
+            init_weights = np.minimum(init_weights, max_weight)
 
     # Check feasibility of initial weights; adjust if necessary.
     if (
@@ -285,6 +316,7 @@ def optimize_weights_objective(
         method=solver_method,
         bounds=bounds,
         constraints=constraints,
+        options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
     )
 
     if not result.success:

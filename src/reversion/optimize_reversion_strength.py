@@ -1,3 +1,4 @@
+from pathlib import Path
 import optuna
 import pandas as pd
 
@@ -9,61 +10,11 @@ from models.optimizer_utils import (
     strategy_composite_score,
     strategy_performance_metrics,
 )
-
-# optuna.logging.set_verbosity(optuna.logging.ERROR)
-
-
-def alpha_objective(
-    trial,
-    returns_df: pd.DataFrame,
-    historical_vol: float,
-    baseline_allocation: pd.Series,
-    composite_signals: dict,
-    group_mapping: dict,
-    objective_weights: dict,
-    rebalance_period: int = 30,
-) -> float:
-    """
-    Optuna objective function for tuning base_alpha.
-    Uses volatility-conditioned priors and rebalances dynamically.
-    """
-    # Set prior mean based on historical volatility
-    mean_alpha = min(0.1, max(0.2, 0.5 * historical_vol))
-    low_alpha = max(0.01, 0.5 * mean_alpha)
-    high_alpha = min(0.5, 2 * mean_alpha)
-
-    # Sample base_alpha within a reasonable range based on prior
-    base_alpha = trial.suggest_float("base_alpha", low_alpha, high_alpha, log=True)
-
-    # Expand allocations into a dynamic positions DataFrame
-    positions_df = pd.DataFrame(index=returns_df.index, columns=returns_df.columns)
-
-    for i, date in enumerate(returns_df.index):
-        if i % rebalance_period == 0:
-            # Recompute mean reversion signals every rebalance period
-            updated_composite_signals = propagate_signals_by_similarity(
-                composite_signals, group_mapping, returns_df
-            )
-            # Adjust allocations dynamically
-            final_allocation = adjust_allocation_with_mean_reversion(
-                baseline_allocation=baseline_allocation,
-                composite_signals=updated_composite_signals,
-                alpha=base_alpha,
-                allow_short=False,
-            )
-
-        # Store the latest allocation
-        positions_df.loc[date] = final_allocation
-
-    # Simulate strategy performance
-    metrics = strategy_performance_metrics(
-        returns_df=returns_df,
-        positions_df=positions_df,
-        objective_weights=objective_weights,
-    )
-
-    # Return composite performance score
-    return strategy_composite_score(metrics, objective_weights=objective_weights)
+from utils.caching_utils import (
+    compute_ticker_hash,
+    load_parameters_from_pickle,
+    save_parameters_to_pickle,
+)
 
 
 def tune_reversion_alpha(
@@ -72,12 +23,24 @@ def tune_reversion_alpha(
     composite_signals: dict,
     group_mapping: dict,
     objective_weights: dict,
+    cache_dir: str = "optuna_cache",
     n_trials: int = 50,
-    patience: int = 10,  # Stop early if no improvement
+    patience: int = 10,
+    hv_window: int = 50,
+    rebalance_period: int = 30,
 ) -> float:
+    hash = compute_ticker_hash(sorted(composite_signals.keys()))
+    cache_file_path = str(Path(cache_dir) / f"reversion_cache_alpha_{hash}.pkl")
+    alpha_cache = load_parameters_from_pickle(filename=cache_file_path)
 
-    # Compute historical realized volatility
-    historical_vol = returns_df.rolling(window=180).std().mean().mean()
+    if "base_alpha" in alpha_cache:
+        print(f"Using cached base_alpha: {alpha_cache['base_alpha']}")
+        return alpha_cache["base_alpha"]
+
+    historical_vol = returns_df.rolling(window=hv_window).std().mean().mean()
+    precomputed_signals = precompute_composite_signals(
+        returns_df, composite_signals, group_mapping, rebalance_period
+    )
 
     study = optuna.create_study(
         direction="maximize",
@@ -94,13 +57,85 @@ def tune_reversion_alpha(
             composite_signals,
             group_mapping,
             objective_weights,
+            rebalance_period=rebalance_period,
+            hv_window=hv_window,
+            precomputed_signals=precomputed_signals,
         ),
         n_trials=n_trials,
-        n_jobs=-1,  # Parallelize across all cores
+        n_jobs=-1,
     )
 
-    # Get the best base_alpha
     best_base_alpha = study.best_params["base_alpha"]
     print(f"Optimal base_alpha: {best_base_alpha}")
-
+    alpha_cache["base_alpha"] = best_base_alpha
+    save_parameters_to_pickle(parameters=alpha_cache, filename=cache_file_path)
     return best_base_alpha
+
+
+def precompute_composite_signals(
+    returns_df, composite_signals, group_mapping, rebalance_period
+):
+    # Create a dict to hold updated signals for each rebalancing date.
+    precomputed_signals = {}
+    for i, date in enumerate(returns_df.index):
+        if i % rebalance_period == 0:
+            # Only compute for rebalancing dates.
+            precomputed_signals[date] = propagate_signals_by_similarity(
+                composite_signals, group_mapping, returns_df
+            )
+    return precomputed_signals
+
+
+def alpha_objective(
+    trial,
+    returns_df: pd.DataFrame,
+    historical_vol: float,
+    baseline_allocation: pd.Series,
+    composite_signals: dict,
+    group_mapping: dict,
+    objective_weights: dict,
+    rebalance_period: int = 30,
+    hv_window: int = 50,
+    precomputed_signals: dict = None,  # Pass precomputed signals here
+) -> float:
+    mean_alpha = min(0.1, max(0.2, 0.5 * historical_vol))
+    low_alpha = max(0.01, 0.5 * mean_alpha)
+    high_alpha = min(0.5, 2 * mean_alpha)
+    base_alpha = trial.suggest_float("base_alpha", low_alpha, high_alpha, log=True)
+    positions_df = pd.DataFrame(index=returns_df.index, columns=returns_df.columns)
+    final_allocation = baseline_allocation.copy()
+
+    for i, date in enumerate(returns_df.index):
+        if i % rebalance_period == 0:
+            start_idx = max(0, i - hv_window)
+            window_returns = returns_df.iloc[start_idx:i]
+            realized_vol = (
+                window_returns.std().mean()
+                if not window_returns.empty
+                else historical_vol
+            )
+            effective_alpha = base_alpha / (1 + realized_vol)
+
+            # Use precomputed signals if available; otherwise, compute them.
+            if precomputed_signals is not None and date in precomputed_signals:
+                updated_signals = precomputed_signals[date]
+            else:
+                updated_signals = propagate_signals_by_similarity(
+                    composite_signals, group_mapping, returns_df
+                )
+
+            final_allocation = adjust_allocation_with_mean_reversion(
+                baseline_allocation=baseline_allocation,
+                composite_signals=updated_signals,
+                alpha=effective_alpha,
+                allow_short=False,
+            )
+
+        positions_df.loc[date] = final_allocation
+
+    metrics = strategy_performance_metrics(
+        returns_df=returns_df,
+        positions_df=positions_df,
+        objective_weights=objective_weights,
+    )
+    return strategy_composite_score(metrics, objective_weights=objective_weights)

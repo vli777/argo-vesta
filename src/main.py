@@ -4,7 +4,9 @@ from config import Config
 from core import run_pipeline
 
 from plotly_graphs import plot_graphs, plot_risk_return_contributions
-from reversion.reversion_plots import plot_reversion_params, plot_reversion_signals
+from reversion.reversion_plots import (
+    plot_reversion_params,
+)
 from utils.caching_utils import load_parameters_from_pickle
 from utils.logger import logger
 from utils.portfolio_utils import estimate_optimal_num_assets
@@ -110,10 +112,6 @@ def iterative_pipeline_runner(
         reversion_params = reversion_cache["params"]
         if isinstance(reversion_params, dict):
             plot_reversion_params(data_dict=reversion_params)
-
-        reversion_signals = reversion_cache["signals"]
-        if isinstance(reversion_signals, dict):
-            plot_reversion_signals(reversion_signals)
 
         reversion_plotted = True
 
