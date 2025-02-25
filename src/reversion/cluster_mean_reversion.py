@@ -20,7 +20,7 @@ def cluster_mean_reversion(
     n_trials: int = 50,
     n_jobs: int = -1,
     global_cache: dict = None,  # Global cache passed in.
-    checkpoint_file: str = None  # Optional file to checkpoint the global cache.
+    checkpoint_file: str = None,  # Optional file to checkpoint the global cache.
 ):
     if global_cache is None:
         global_cache = {}
@@ -79,13 +79,21 @@ def cluster_mean_reversion(
 
             daily_params = {
                 "window": round(best_params_daily.get("window", 20), 1),
-                "z_threshold_positive": round(best_params_daily.get("z_threshold_positive", 1.5), 1),
-                "z_threshold_negative": round(best_params_daily.get("z_threshold_negative", 1.5), 1),
+                "z_threshold_positive": round(
+                    best_params_daily.get("z_threshold_positive", 1.5), 1
+                ),
+                "z_threshold_negative": round(
+                    best_params_daily.get("z_threshold_negative", 1.5), 1
+                ),
             }
             weekly_params = {
                 "window": round(best_params_weekly.get("window", 5), 1),
-                "z_threshold_positive": round(best_params_weekly.get("z_threshold_positive", 1.5), 1),
-                "z_threshold_negative": round(best_params_weekly.get("z_threshold_negative", 1.5), 1),
+                "z_threshold_positive": round(
+                    best_params_weekly.get("z_threshold_positive", 1.5), 1
+                ),
+                "z_threshold_negative": round(
+                    best_params_weekly.get("z_threshold_negative", 1.5), 1
+                ),
             }
 
             daily_signals_opt = {}

@@ -23,7 +23,7 @@ def optimize_robust_mean_reversion(
 ) -> Tuple[Dict[str, float], optuna.study.Study]:
     """
     Optimize the rolling window and z_threshold using Optuna.
-    This version first performs a coarse grid search using the provided test_window_range.
+    This first performs a coarse grid search using the provided test_window_range before a refining search.
 
     Args:
         returns_df (pd.DataFrame): Log returns DataFrame.
@@ -65,9 +65,12 @@ def optimize_robust_mean_reversion(
     refined_upper = min(test_window_range.stop, best_window + refinement_margin + 1)
     refined_range = range(refined_lower, refined_upper, refined_step)
 
+    # Create the refined study and seed it with the coarse best parameters.
     refined_study = optuna.create_study(
         direction="maximize", sampler=optuna.samplers.TPESampler(seed=42)
     )
+    refined_study.enqueue_trial(best_coarse_params)
+
     refined_study.optimize(
         lambda trial: robust_mean_reversion_objective(
             trial,
@@ -78,12 +81,15 @@ def optimize_robust_mean_reversion(
         n_trials=refined_trials,
         n_jobs=n_jobs,
     )
-    # Use the refined result if it improves upon the coarse search
-    if refined_study.best_value > coarse_study.best_value:
+
+    # Choose the best parameters from the refined search if it improves upon the coarse result.
+    if refined_study.best_value > (
+        coarse_study.best_value if coarse_study else -float("inf")
+    ):
         best_params = refined_study.best_trial.params
         return best_params, refined_study
     else:
-        return best_coarse_params, coarse_study
+        return best_coarse_params, coarse_study or refined_study
 
 
 def robust_mean_reversion_objective(
