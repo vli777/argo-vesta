@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 from sklearn.covariance import LedoitWolf
 
-from result_output import output_results
 from config import Config
 from models.nco import nested_clustered_optimization
 from models.optimize_portfolio import estimated_portfolio_volatility
@@ -170,14 +169,3 @@ def run_optimization_and_save(
                 f"No valid weights generated for {model} {optimization_objective} ({years} years)."
             )
             final_weights = pd.Series(dtype=float)  # Default empty Series
-
-        # Output results for individual optimizations
-        # output_results(
-        #     df=df,
-        #     weights=final_weights,
-        #     model_name=f"{model} {config.optimization_objective}",
-        #     start_date=start_date,
-        #     end_date=end_date,
-        #     years=years,
-        #     config=config,
-        # )

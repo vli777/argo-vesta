@@ -11,6 +11,7 @@ from utils.performance_metrics import sharpe_ratio
 
 # deprecated in favor of GAE-based class
 
+
 class MultiAssetReversion:
     def __init__(self, prices_df: pd.DataFrame, det_order=0, k_ar_diff=1):
         """
