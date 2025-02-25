@@ -4,6 +4,8 @@ from typing import Optional, Union, Dict
 from scipy.optimize import minimize
 import pyomo.environ as pyo
 from pyomo.opt import TerminationCondition, SolverStatus
+from scipy.optimize import minimize, dual_annealing
+
 from models.pyomo_objective_models import (
     build_omega_model,
     build_sharpe_model,
@@ -54,9 +56,13 @@ def optimize_weights_objective(
     solver_method: str = "SLSQP",
     initial_guess: Optional[np.ndarray] = None,
     apply_constraints: bool = False,
+    use_annealing: bool = False,  # New flag to choose dual annealing
+    penalty_weight: float = 1e6,  # Penalty multiplier for constraint violations
 ) -> np.ndarray:
     """
     Optimize portfolio weights using a unified, robust interface.
+    If use_annealing is True, dual annealing (global optimization) is used
+    with a penalized version of the objective function.
 
     For 'sharpe', expected returns (mu) and covariance (cov) are used.
     For objectives such as 'omega', historical returns (returns) are required.
@@ -85,7 +91,6 @@ def optimize_weights_objective(
         np.ndarray: Optimized portfolio weights.
     """
     n = cov.shape[0]
-    # Default max_weight to 1.0 if not provided.
     if max_weight is None:
         max_weight = 1.0
     else:
@@ -108,7 +113,6 @@ def optimize_weights_objective(
         # Constraint: cvar_limit - computed CVaR must be >= 0.
         return cvar_limit - cvar_value
 
-    # Define the volatility constraint with a small slack to ease numerical issues.
     def vol_constraint(w):
         return vol_limit - estimated_portfolio_volatility(w, cov)
 
@@ -125,12 +129,10 @@ def optimize_weights_objective(
             constraints.append({"type": "ineq", "fun": cvar_constraint})
         if vol_limit is not None:
             constraints.append({"type": "ineq", "fun": vol_constraint})
-
-    # Add gross exposure for long/short
     if allow_short:
         constraints.append({"type": "ineq", "fun": gross_exposure})
 
-    # We'll assign the selected objective function to chosen_obj.
+    # Define the objective function to be optimized.
     chosen_obj = None
     if objective.lower() == "sharpe":
         if returns is None or mu is None:
@@ -146,7 +148,6 @@ def optimize_weights_objective(
 
             chosen_obj = obj
         else:
-            # logger.info("Optimizing for max Sharpe with pyomo...")
             model_pyomo = build_sharpe_model(
                 cov=cov,
                 mu=mu,
@@ -160,7 +161,6 @@ def optimize_weights_objective(
                 min_return=min_return if apply_constraints else None,
                 alpha=alpha,
             )
-
             solver = pyo.SolverFactory(
                 "ipopt",
                 executable="H:/Solvers/Ipopt-3.14.17-win64-msvs2022-md/bin/ipopt.exe",
@@ -169,7 +169,6 @@ def optimize_weights_objective(
             weights_pyomo = np.array(
                 [pyo.value(model_pyomo.w[i]) for i in model_pyomo.assets]
             )
-            # sharpe_pyomo = -pyo.value(model_pyomo.obj)
             return weights_pyomo
 
     elif objective.lower() == "omega":
@@ -203,7 +202,6 @@ def optimize_weights_objective(
             raise ValueError(
                 "Historical returns must be provided for Omega optimization."
             )
-
         model = build_omega_model(
             cov=cov,
             returns=returns,
@@ -227,7 +225,6 @@ def optimize_weights_objective(
             raise RuntimeError(
                 "Solver did not converge! Status: {results.solver.status}, Termination: {results.solver.termination_condition}"
             )
-
         # Recover weights from y and z: w = y/z.
         z_val = pyo.value(model.z)
         if z_val is None or abs(z_val) < 1e-8:
@@ -235,7 +232,6 @@ def optimize_weights_objective(
         weights = np.array([pyo.value(model.y[i]) for i in model.assets]) / z_val
         # Normalize to sum to target_sum.
         weights = weights / np.sum(weights) * target_sum
-
         return weights
 
     elif objective.lower() == "aggro":
@@ -307,9 +303,29 @@ def optimize_weights_objective(
         vol_limit is not None
         and estimated_portfolio_volatility(init_weights, cov) > vol_limit
     ):
-        # Slightly dampen the weights if initial volatility is too high.
         init_weights *= 0.95
 
+    # If using dual annealing, build a penalized objective and call dual_annealing.
+    if use_annealing:
+
+        def penalty(w):
+            pen = penalty_weight * abs(np.sum(w) - target_sum)
+            for con in constraints:
+                if con["type"] == "ineq":
+                    val = con["fun"](w)
+                    if val < 0:
+                        pen += penalty_weight * abs(val)
+            return pen
+
+        def penalized_obj(w):
+            return chosen_obj(w) + penalty(w)
+
+        result = dual_annealing(penalized_obj, bounds=bounds, maxiter=1000)
+        if not result.success:
+            raise ValueError("Dual annealing optimization failed: " + result.message)
+        return result.x
+
+    # Otherwise use the standard local solver.
     result = minimize(
         chosen_obj,
         init_weights,
@@ -318,8 +334,6 @@ def optimize_weights_objective(
         constraints=constraints,
         options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
     )
-
     if not result.success:
         raise ValueError("Optimization failed: " + result.message)
-
     return result.x
