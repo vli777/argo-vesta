@@ -19,6 +19,7 @@ portfolio_max_cvar: float # Maximum allowable tail risk e.g. -0.02 for -2%
 portfolio_risk_priority: str # Prioritize 'vol' or 'cvar' while allowing the other to adapt when searching for a risk-constrained solution
 risk_free_rate: float # e.g. T-bill return, default 0.0
 allow_short: bool # Whether to allow shorting (WIP)
+max_gross_exposure: float # Portfolio max gross exposure constraint when shorting is enabled
 
 plot_daily_returns: bool # Whether to plot daily returns
 plot_cumulative_returns: bool # Whether to plot cumulative returns

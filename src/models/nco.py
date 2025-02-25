@@ -24,6 +24,7 @@ def nested_clustered_optimization(
     max_clusters: int = 10,
     max_weight: float = 1.0,
     allow_short: bool = False,
+    max_gross_exposure: float = 1.3,
     target: Optional[float] = None,
     order: int = 3,
     target_sum: float = 1.0,
@@ -41,6 +42,7 @@ def nested_clustered_optimization(
         max_clusters (int): Maximum number of clusters.
         max_weight (float): Maximum weight per asset.
         allow_short (bool): Allow short positions.
+        max_gross_exposure (float): Maximum gross exposure when allowing short positions.
         target (float): Target threshold for Omega ratio tau.
         order (int): Order for downside risk metrics.
         target_sum (float): Sum of weights (default 1.0).
@@ -94,6 +96,7 @@ def nested_clustered_optimization(
             target=target,
             max_weight=max_weight,
             allow_short=allow_short,
+            max_gross_exposure=max_gross_exposure,
             target_sum=target_sum,
         )
         intra_weights.loc[cluster_assets, cluster] = weights
@@ -126,6 +129,7 @@ def nested_clustered_optimization(
             target=target,
             max_weight=max_weight,
             allow_short=allow_short,
+            max_gross_exposure=max_gross_exposure,
             target_sum=target_sum,
         ),
         index=unique_clusters,
