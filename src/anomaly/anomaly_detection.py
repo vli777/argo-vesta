@@ -26,7 +26,9 @@ def remove_anomalous_stocks(
     """
     Filters out stocks with anomalous returns using Isolation Forest (IF),
     Kalman Filter (KF), or fixed Z-score. Uses per-ticker optimization and caches
-    method-specific parameters.
+    method-specific parameters as well as a list of stocks previously flagged as anomalous.
+    The anomalous stock list is saved to 'anomalous_assets.pkl' so that in future runs,
+    stocks already determined to be anomalous can be skipped regardless of the filter used.
 
     Args:
         returns_df (pd.DataFrame): DataFrame where each column corresponds to a stock's returns.
@@ -55,22 +57,40 @@ def remove_anomalous_stocks(
         method = "Z-score"
         use_fixed_zscore, use_isolation_forest, use_kalman_filter = True, False, False
 
+    # Load the tuning parameters cache for the selected method.
     cache_filename = get_cache_filename(method)
-    cache: Dict[str, Any] = (
+    tuning_cache: Dict[str, Any] = (
         {} if reoptimize else load_parameters_from_pickle(cache_filename) or {}
     )
 
+    # Load the anomalous assets cache (list of stocks already flagged as anomalous) regardless of detection method.
+    anomalous_cache_filename = "optuna_cache/anomalous_assets.pkl"
+    anomalous_cache: List[str] = (
+        []
+        if reoptimize
+        else load_parameters_from_pickle(anomalous_cache_filename) or []
+    )
+
     def process_ticker(stock: str) -> Optional[Dict[str, Any]]:
+        # If the stock is already flagged as anomalous, skip processing.
+        if (stock in anomalous_cache) and not reoptimize:
+            return {
+                "stock": stock,
+                "threshold": None,
+                "anomaly_flags": None,
+                "estimates": None,
+                "anomaly_fraction": 1.0,
+            }
+
         series = returns_df[stock].dropna()
         if series.empty:
             logger.warning(f"No data for stock {stock}. Skipping.")
             return None
 
         if use_isolation_forest:
-            if stock in cache and not reoptimize:
-                ticker_info = cache[stock]
+            if stock in tuning_cache and not reoptimize:
+                ticker_info = tuning_cache[stock]
             else:
-                # Optimize threshold dynamically for the given method.
                 ticker_info = optimize_threshold_for_ticker(
                     series, weight_dict, stock, method, contamination=contamination_val
                 )
@@ -78,11 +98,9 @@ def remove_anomalous_stocks(
             anomaly_flags, estimates = apply_isolation_forest(
                 series, threshold=thresh, contamination=contamination_val
             )
-
         elif use_kalman_filter:
             thresh = 7.0
             anomaly_flags, estimates = apply_kalman_filter(series, threshold=thresh)
-
         elif use_fixed_zscore:
             thresh = 3.0
             anomaly_flags, estimates = apply_fixed_zscore(series, threshold=thresh)
@@ -103,30 +121,41 @@ def remove_anomalous_stocks(
         delayed(process_ticker)(stock) for stock in returns_df.columns
     )
 
-    anomalous_stocks: List[str] = []
+    new_anomalous_stocks: List[str] = []
     for info in processed_info:
         if info is None:
             continue
-        cache[info["stock"]] = info
+        tuning_cache[info["stock"]] = info
         if info["anomaly_fraction"] > max_anomaly_fraction:
-            anomalous_stocks.append(info["stock"])
+            new_anomalous_stocks.append(info["stock"])
 
-    save_parameters_to_pickle(cache, cache_filename)
+    # Update the tuning parameters cache.
+    save_parameters_to_pickle(tuning_cache, cache_filename)
+
+    # Merge previously cached anomalous stocks with newly detected ones (if not reoptimizing).
+    if not reoptimize:
+        all_anomalous = list(set(anomalous_cache).union(set(new_anomalous_stocks)))
+    else:
+        all_anomalous = new_anomalous_stocks
+
+    # Save the updated list of anomalous stocks.
+    save_parameters_to_pickle(all_anomalous, anomalous_cache_filename)
+
     valid_tickers = [
-        stock for stock in returns_df.columns if stock not in anomalous_stocks
+        stock for stock in returns_df.columns if stock not in all_anomalous
     ]
     logger.info(
-        f"Removed {len(anomalous_stocks)} stocks due to high anomaly fraction: {sorted(anomalous_stocks)}"
-        if anomalous_stocks
+        f"Removed {len(all_anomalous)} stocks due to high anomaly fraction: {sorted(all_anomalous)}"
+        if all_anomalous
         else "No stocks were removed."
     )
 
-    if plot and cache and anomalous_stocks:
-        optimization_summary = list(cache.values())
+    if plot and tuning_cache and all_anomalous:
+        optimization_summary = list(tuning_cache.values())
         plot_optimization_summary(
             optimization_summary=optimization_summary,
             max_anomaly_fraction=max_anomaly_fraction,
         )
-        plot_anomaly_overview(anomalous_stocks, cache, returns_df)
+        plot_anomaly_overview(all_anomalous, tuning_cache, returns_df)
 
     return valid_tickers
