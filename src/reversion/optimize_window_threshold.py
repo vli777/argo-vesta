@@ -8,7 +8,7 @@ from models.optimizer_utils import (
     strategy_performance_metrics,
 )
 from utils.z_scores import calculate_robust_zscores
-from utils.logger import logger
+from utils import logger
 
 
 def optimize_robust_mean_reversion(
@@ -17,26 +17,32 @@ def optimize_robust_mean_reversion(
     test_window_range: range = range(10, 31, 5),
     n_trials: int = 50,
     n_jobs: int = -1,
+    refinement_margin: int = 5,
+    refined_step: int = 1,
+    refined_trials: int = 30,
 ) -> Tuple[Dict[str, float], optuna.study.Study]:
     """
     Optimize the rolling window and z_threshold using Optuna.
-    This version does not write group-level keys to the global cache.
+    This version first performs a coarse grid search using the provided test_window_range.
 
     Args:
         returns_df (pd.DataFrame): Log returns DataFrame.
-        test_window_range (range): Range of window sizes.
-        n_trials (int, optional): Number of trials. Defaults to 50.
+        objective_weights (dict): Weights for objective metrics.
+        test_window_range (range, optional): Coarse range of window sizes. Defaults to range(10, 31, 5).
+        n_trials (int, optional): Number of trials for coarse search. Defaults to 50.
         n_jobs (int, optional): Parallel jobs. Defaults to -1.
-        reoptimize (bool): Force reoptimization.
-        group_id (str): Identifier for the cluster (not used for caching here).
+        refinement_margin (int, optional): Margin around the best window for refined search. Defaults to 5.
+        refined_step (int, optional): Step size for refined search. Defaults to 1.
+        refined_trials (int, optional): Number of trials for refined search. Defaults to 30.
 
     Returns:
-        Tuple[Dict[str, float], optuna.study.Study]: Best parameters and the study.
+        Tuple[Dict[str, float], optuna.study.Study]: Best parameters and the study object.
     """
-    study = optuna.create_study(
+    # Coarse search
+    coarse_study = optuna.create_study(
         direction="maximize", sampler=optuna.samplers.TPESampler(seed=42)
     )
-    study.optimize(
+    coarse_study.optimize(
         lambda trial: robust_mean_reversion_objective(
             trial,
             returns_df=returns_df,
@@ -46,12 +52,38 @@ def optimize_robust_mean_reversion(
         n_trials=n_trials,
         n_jobs=n_jobs,
     )
-    best_params = (
-        study.best_trial.params
-        if study.best_trial
+    best_coarse_params = (
+        coarse_study.best_trial.params
+        if coarse_study.best_trial
         else {"window": 20, "z_threshold_positive": 1.5, "z_threshold_negative": 1.8}
     )
-    return best_params, study
+
+    # Adaptive refinement: refine the window parameter around the best coarse value
+    best_window = best_coarse_params["window"]
+    refined_lower = max(test_window_range.start, best_window - refinement_margin)
+    # test_window_range.stop is exclusive so add 1 to include best_window + refinement_margin
+    refined_upper = min(test_window_range.stop, best_window + refinement_margin + 1)
+    refined_range = range(refined_lower, refined_upper, refined_step)
+
+    refined_study = optuna.create_study(
+        direction="maximize", sampler=optuna.samplers.TPESampler(seed=42)
+    )
+    refined_study.optimize(
+        lambda trial: robust_mean_reversion_objective(
+            trial,
+            returns_df=returns_df,
+            objective_weights=objective_weights,
+            test_window_range=refined_range,
+        ),
+        n_trials=refined_trials,
+        n_jobs=n_jobs,
+    )
+    # Use the refined result if it improves upon the coarse search
+    if refined_study.best_value > coarse_study.best_value:
+        best_params = refined_study.best_trial.params
+        return best_params, refined_study
+    else:
+        return best_coarse_params, coarse_study
 
 
 def robust_mean_reversion_objective(
@@ -85,7 +117,6 @@ def robust_mean_reversion_objective(
     #  - If the z-score is below -z_threshold_negative, signal long (1).
     #  - If it is above z_threshold_positive, signal short (-1).
     #  - Otherwise, signal 0.
-    # Compute continuous signals:
     signals = np.where(
         robust_z.values < -z_threshold_negative,
         (np.abs(robust_z.values) - z_threshold_negative) / z_threshold_negative,
@@ -97,7 +128,6 @@ def robust_mean_reversion_objective(
     )
 
     signals_df = pd.DataFrame(signals, index=robust_z.index, columns=robust_z.columns)
-
     positions_df = signals_df.shift(1).fillna(0)
     valid_stocks = returns_df.dropna(axis=1, how="all").columns
     positions_df = positions_df[valid_stocks]
