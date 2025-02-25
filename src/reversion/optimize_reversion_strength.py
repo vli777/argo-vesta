@@ -10,7 +10,7 @@ from models.optimizer_utils import (
     strategy_composite_score,
     strategy_performance_metrics,
 )
-from src.utils.caching_utils import (
+from utils.caching_utils import (
     load_parameters_from_pickle,
     save_parameters_to_pickle,
 )
