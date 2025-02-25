@@ -31,34 +31,51 @@ def plot_global_optimization(
     Returns:
         fig: Plotly Figure object showing the 3D contour (surface) plot with the optimum marked.
     """
-    # Define the effective objective function based on flip_objective flag.
+
     effective_obj = (
         (lambda w: -objective_function(w)) if flip_objective else objective_function
     )
 
-    # Use PCA to reduce the high-dimensional search history to 2 dimensions.
-    pca = PCA(n_components=2)
-    projected_history = pca.fit_transform(search_history)
-    projected_final = pca.transform(final_solution.reshape(1, -1))[0]
+    # If we have at least 2 candidates, use PCA for projection.
+    if search_history.shape[0] >= 2:
+        pca = PCA(n_components=2)
+        projected_history = pca.fit_transform(search_history)
+        projected_final = pca.transform(final_solution.reshape(1, -1))[0]
+        inverse_transform = pca.inverse_transform
+    else:
+        # Only one candidate recorded. We'll define a dummy projection.
+        # For visualization, we take the first two coordinates.
+        projected_history = search_history[:, :2]
+        projected_final = final_solution[:2]
 
-    # Define grid boundaries based on the projected search history.
+        # For the inverse transform, we define a function that takes a 2D point
+        # and returns a candidate by appending the remaining coordinates from final_solution.
+        def inverse_transform(x):
+            # x: array of shape (n_points, 2)
+            n_points = x.shape[0]
+            # If final_solution has more than 2 dimensions, repeat the remaining dimensions.
+            if final_solution.shape[0] > 2:
+                fixed_part = np.tile(final_solution[2:], (n_points, 1))
+                return np.hstack((x, fixed_part))
+            else:
+                return x
+
+    # Define grid boundaries from the projected history.
     x_min, x_max = projected_history[:, 0].min(), projected_history[:, 0].max()
     y_min, y_max = projected_history[:, 1].min(), projected_history[:, 1].max()
 
-    # Create a grid in the 2D PCA space.
     grid_x, grid_y = np.mgrid[
         x_min : x_max : grid_resolution * 1j, y_min : y_max : grid_resolution * 1j
     ]
     grid_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
 
-    # Inverse-transform grid points back to the original space.
-    original_points = pca.inverse_transform(grid_points)
+    # Map grid points back to the original candidate space.
+    original_points = inverse_transform(grid_points)
 
     # Evaluate the effective objective function on the grid.
     Z = np.array([effective_obj(pt) for pt in original_points])
     Z = Z.reshape(grid_x.shape)
 
-    # Create the 3D surface plot.
     fig = go.Figure(
         data=[
             go.Surface(
@@ -73,7 +90,6 @@ def plot_global_optimization(
         ]
     )
 
-    # Add a marker for the final optimum.
     final_obj_value = effective_obj(final_solution)
     fig.add_trace(
         go.Scatter3d(
@@ -89,8 +105,8 @@ def plot_global_optimization(
     fig.update_layout(
         title=title,
         scene=dict(
-            xaxis_title="Weights PC1",
-            yaxis_title="Weights PC2",
+            xaxis_title="Weights PC 1",
+            yaxis_title="Weights PC 2",
             zaxis_title="Objective Value",
         ),
     )

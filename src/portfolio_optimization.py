@@ -102,7 +102,8 @@ def run_optimization_and_save(
         mu_annual = mu_annual.loc[valid_assets]
         mu_annual = mu_annual.reindex(valid_assets)
 
-        max_weight = config.max_weight
+        min_weight = config.min_weight
+        max_weight = config.max_weight        
         optimization_objective = config.optimization_objective
         allow_short = config.allow_short
         max_gross_exposure = config.max_gross_exposure
@@ -113,6 +114,7 @@ def run_optimization_and_save(
 
         model_args = {
             "returns": asset_returns,
+            "min_weight": min_weight,
             "max_weight": max_weight,
             "objective": optimization_objective,
             "allow_short": allow_short,
