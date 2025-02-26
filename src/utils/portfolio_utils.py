@@ -366,7 +366,7 @@ def estimate_optimal_num_assets(
             optimal_n, portfolio_max_size
         )  # Apply upper limit only if defined
 
-    logger.info(
+    logger.debug(
         f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
     )
 

@@ -52,6 +52,7 @@ def run_optimization_and_save(
     symbols: List[str],
     stack: Dict,
     years: str,
+    plot: bool,
 ):
     final_weights = None
 
@@ -117,7 +118,6 @@ def run_optimization_and_save(
             config.use_global_optimization
             and config.global_optimization_type == "diffusion"
         )
-        plot = config.plot_optimization
 
         model_args = {
             "returns": asset_returns,
