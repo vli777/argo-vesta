@@ -3,6 +3,7 @@ import pandas as pd
 from typing import Optional, Union, Dict
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_samples
+from functools import partial
 
 from models.optimize_portfolio import (
     estimated_portfolio_volatility,
@@ -18,6 +19,16 @@ def cov_to_corr(cov):
     corr = cov / np.outer(std, std)
     corr[corr < -1], corr[corr > 1] = -1, 1  # Numerical stability
     return corr
+
+
+def default_intra_callback(x, f, ctx, cl, history_dict):
+    history_dict.setdefault(cl, []).append(x.copy())
+    return False
+
+
+def default_inter_callback(x, f, ctx, history_list):
+    history_list.append(x.copy())
+    return False
 
 
 def nested_clustered_optimization(
@@ -96,13 +107,10 @@ def nested_clustered_optimization(
         cluster_mu = mu.loc[cluster_assets] if mu is not None else None
         cluster_returns = returns[cluster_assets] if returns is not None else None
 
-        # Create a callback that appends candidate and returns False.
-        def intra_callback(cl):
-            return lambda x, f, ctx: (
-                intra_search_histories.setdefault(cl, []).append(x.copy()) or False
-            )
-
         intra_search_histories[cluster] = []
+        intra_cb = partial(
+            default_intra_callback, cl=cluster, history_dict=intra_search_histories
+        )
         weights = optimize_weights_objective(
             cluster_cov,
             mu=cluster_mu,
@@ -116,7 +124,7 @@ def nested_clustered_optimization(
             target_sum=target_sum,
             use_annealing=use_annealing,
             use_diffusion=use_diffusion,
-            callback=intra_callback(cluster),
+            callback=intra_cb,
         )
         intra_weights.loc[cluster_assets, cluster] = weights
 
@@ -139,7 +147,7 @@ def nested_clustered_optimization(
 
     # Record inter-cluster search history.
     inter_search_history = []
-    inter_callback = lambda x, f, ctx: (inter_search_history.append(x.copy()) or False)
+    inter_cb = partial(default_inter_callback, history_list=inter_search_history)
     inter_weights = pd.Series(
         optimize_weights_objective(
             reduced_cov,
@@ -154,7 +162,7 @@ def nested_clustered_optimization(
             target_sum=target_sum,
             use_annealing=use_annealing,
             use_diffusion=use_diffusion,
-            callback=inter_callback,
+            callback=inter_cb,
         ),
         index=unique_clusters,
     )

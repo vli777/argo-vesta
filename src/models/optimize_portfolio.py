@@ -4,6 +4,7 @@ from typing import Any, Callable, Optional, Union, Dict
 from scipy.optimize import minimize
 import pyomo.environ as pyo
 from pyomo.opt import TerminationCondition, SolverStatus
+from functools import partial
 
 from models.pyomo_objective_models import (
     build_omega_model,
@@ -11,31 +12,20 @@ from models.pyomo_objective_models import (
 )
 from models.simulated_annealing import multi_seed_dual_annealing
 from models.stochastic_diffusion import multi_seed_diffusion
+from models.scipy_objective_models import (
+    aggro_objective,
+    cvar_constraint_fn,
+    estimated_portfolio_volatility,
+    gross_exposure_fn,
+    omega_objective,
+    penalized_objective,
+    penalty,
+    sharpe_objective,
+    sum_constraint_fn,
+    vol_constraint_fn,
+)
+
 from utils import logger
-from utils.performance_metrics import conditional_var
-
-
-def empirical_lpm(portfolio_returns, target=0, order=3):
-    """
-    Compute the empirical lower partial moment (LPM) of a return series.
-
-    Parameters:
-        portfolio_returns : array-like, historical portfolio returns.
-        target          : target return level.
-        order           : order of the LPM (default is 3).
-
-    Returns:
-        The LPM of the specified order.
-    """
-    portfolio_returns = np.asarray(portfolio_returns)
-    diff = np.maximum(target - portfolio_returns, 0)
-    return np.mean(diff**order)
-
-
-def estimated_portfolio_volatility(w: np.ndarray, cov: np.ndarray) -> float:
-    """Computes portfolio volatility (standard deviation) given weights and covariance."""
-    cov_arr = cov.to_numpy() if isinstance(cov, pd.DataFrame) else cov
-    return float(np.sqrt(w.T @ cov_arr @ w))
 
 
 def optimize_weights_objective(
@@ -120,71 +110,48 @@ def optimize_weights_objective(
     else:
         mu_arr = None
 
-    # Define CVaR constraint using the conditional_var function.
-    def cvar_constraint(w):
-        port_returns = returns_arr @ w
-        cvar_value = float(conditional_var(pd.Series(port_returns), alpha))
-        return cvar_limit - cvar_value
+    constraints = [
+        {
+            "type": "eq",
+            "fun": partial(sum_constraint_fn, target_sum=target_sum),
+        }
+    ]
 
-    def vol_constraint(w):
-        port_vol = estimated_portfolio_volatility(w, cov_arr)
-        return vol_limit - port_vol
-
-    def gross_exposure(w):
-        return float(max_gross_exposure - np.sum(np.abs(w)))
-
-    constraints = [{"type": "eq", "fun": lambda w: float(np.sum(w)) - target_sum}]
-
-    # Add CVaR and max volatility
     if apply_constraints:
         if cvar_limit is not None:
-            constraints.append({"type": "ineq", "fun": cvar_constraint})
+            constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": partial(
+                        cvar_constraint_fn,
+                        returns_arr=returns_arr,
+                        alpha=alpha,
+                        cvar_limit=cvar_limit,
+                    ),
+                }
+            )
         if vol_limit is not None:
-            constraints.append({"type": "ineq", "fun": vol_constraint})
+            constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": partial(
+                        vol_constraint_fn, cov_arr=cov_arr, vol_limit=vol_limit
+                    ),
+                }
+            )
     if allow_short:
-        constraints.append({"type": "ineq", "fun": gross_exposure})
+        constraints.append(
+            {
+                "type": "ineq",
+                "fun": partial(
+                    gross_exposure_fn, max_gross_exposure=max_gross_exposure
+                ),
+            }
+        )
 
     # Define the objective function to be optimized.
     chosen_obj = None
-    if objective.lower() == "sharpe":
-        if returns_arr is None or mu_arr is None:
-            raise ValueError(
-                "Both historical returns and expected returns (mu) must be provided for Sharpe optimization."
-            )
-        if n < 50:
-
-            def obj(w: np.ndarray) -> float:
-                port_return = float(np.dot(w, mu_arr))
-                port_vol = estimated_portfolio_volatility(w, cov_arr)
-                sharpe = port_return / port_vol if port_vol > 0 else 1e6
-                return -sharpe
-
-            chosen_obj = obj
-        else:
-            model_pyomo = build_sharpe_model(
-                cov=cov,
-                mu=mu,
-                returns=returns,
-                target_sum=target_sum,
-                max_weight=max_weight,
-                allow_short=allow_short,
-                gross_target=max_gross_exposure,
-                vol_limit=vol_limit if apply_constraints else None,
-                cvar_limit=cvar_limit if apply_constraints else None,
-                min_return=min_return if apply_constraints else None,
-                alpha=alpha,
-            )
-            solver = pyo.SolverFactory(
-                "ipopt",
-                executable="H:/Solvers/Ipopt-3.14.17-win64-msvs2022-md/bin/ipopt.exe",
-            )
-            solver.solve(model_pyomo)
-            weights_pyomo = np.array(
-                [pyo.value(model_pyomo.w[i]) for i in model_pyomo.assets]
-            )
-            return weights_pyomo
-
-    elif objective.lower() == "omega":
+    if objective.lower() == "omega":
         """
         For the 'omega' objective, historical returns are required. This function
         implements a robust version of the Omega ratio optimization using a linear-fractional
@@ -217,19 +184,7 @@ def optimize_weights_objective(
             )
 
         if n < 50:
-            theta = target
-
-            def obj(w: np.ndarray) -> float:
-                port_returns = returns_arr.dot(w)
-                expected_return = np.mean(port_returns)
-                shortfall = np.maximum(theta - port_returns, 0)
-                expected_shortfall = np.mean(shortfall)
-                if expected_shortfall < 1e-8:
-                    expected_shortfall = 1e-8
-                omega = (expected_return - theta) / expected_shortfall + 1
-                return -omega
-
-            chosen_obj = obj
+            chosen_obj = partial(omega_objective, returns_arr=returns_arr, theta=target)
         else:
             model = build_omega_model(
                 cov=cov,
@@ -269,29 +224,44 @@ def optimize_weights_objective(
                 "Historical returns must be provided for Omega optimization."
             )
 
-        def obj(w: np.ndarray) -> float:
-            port_returns = returns_arr @ w
-            cumulative_return = np.prod(1 + port_returns) - 1
-            port_mean = np.mean(port_returns)
-            port_vol = estimated_portfolio_volatility(w, cov_arr)
-            lpm = empirical_lpm(port_returns, target=target, order=order)
-            kappa_val = (
-                ((port_mean - target) / (lpm ** (1.0 / order))) if lpm > 1e-8 else -1e6
+        chosen_obj = partial(
+            aggro_objective,
+            returns_arr=returns_arr,
+            cov_arr=cov_arr,
+            target=target,
+            order=order,
+        )
+
+    else:  # default to sharpe optimization
+        if returns_arr is None or mu_arr is None:
+            raise ValueError(
+                "Both historical returns and expected returns (mu) must be provided for Sharpe optimization."
             )
-            sharpe_val = port_mean / port_vol if port_vol > 0 else -1e6
-            combined = (cumulative_return + sharpe_val + kappa_val) / 3.0
-            return -combined
-
-        chosen_obj = obj
-
-    else:
-
-        def obj(w: np.ndarray) -> float:
-            port_return = float(np.dot(w, mu_arr))
-            port_vol = estimated_portfolio_volatility(w, cov_arr)
-            return -port_return / port_vol if port_vol > 0 else 1e6
-
-        chosen_obj = obj
+        if n < 50:
+            chosen_obj = partial(sharpe_objective, mu_arr=mu_arr, cov_arr=cov_arr)
+        else:
+            model_pyomo = build_sharpe_model(
+                cov=cov,
+                mu=mu,
+                returns=returns,
+                target_sum=target_sum,
+                max_weight=max_weight,
+                allow_short=allow_short,
+                gross_target=max_gross_exposure,
+                vol_limit=vol_limit if apply_constraints else None,
+                cvar_limit=cvar_limit if apply_constraints else None,
+                min_return=min_return if apply_constraints else None,
+                alpha=alpha,
+            )
+            solver = pyo.SolverFactory(
+                "ipopt",
+                executable="H:/Solvers/Ipopt-3.14.17-win64-msvs2022-md/bin/ipopt.exe",
+            )
+            solver.solve(model_pyomo)
+            weights_pyomo = np.array(
+                [pyo.value(model_pyomo.w[i]) for i in model_pyomo.assets]
+            )
+            return weights_pyomo
 
     # Check for infeasibility and adjust weight constraints if needed
     if min_weight is not None and min_weight * n > target_sum:
@@ -328,61 +298,62 @@ def optimize_weights_objective(
         init_weights *= 0.95
 
     # --- Global Optimization Branch ---
+
     if use_annealing or use_diffusion:
+        # Create the penalty function with all required arguments
+        penalty_function = partial(
+            penalty,
+            penalty_weight=penalty_weight,
+            constraints=constraints,
+            target_sum=target_sum,
+        )
 
-        def penalty(w) -> float:
-            pen = penalty_weight * abs(np.sum(w) - target_sum)
-            for con in constraints:
-                if con["type"] == "ineq":
-                    val = con["fun"](w)
-                    if val < 0:
-                        pen += penalty_weight * abs(val)
-            return pen
+        # Create the penalized objective function
+        penalized_obj = partial(
+            penalized_objective,
+            chosen_obj=chosen_obj,
+            penalty=penalty_function,  # Use the fully configured penalty function
+        )
 
-        def penalized_obj(w) -> float:
-            return chosen_obj(w) + penalty(w)
+    if use_annealing:
+        cb = callback if callback is not None else (lambda x, f, context: False)
 
-        if use_annealing:
+        result = multi_seed_dual_annealing(
+            penalized_obj,
+            bounds=bounds,
+            num_runs=3,
+            maxiter=10000,
+            initial_temp=10000,
+            visit=10,
+            accept=-10.0,
+            callback=cb,
+        )
 
-            cb = callback if callback is not None else (lambda x, f, context: False)
-            result = multi_seed_dual_annealing(
-                penalized_obj,
-                bounds=bounds,
-                num_runs=10,
-                maxiter=10000,
-                initial_temp=10000,
-                visit=10,
-                accept=-10.0,
-                callback=cb,
+        if not result.success:
+            raise ValueError("Dual annealing optimization failed: " + result.message)
+
+        return result.x
+
+    if use_diffusion:
+        cb = callback if callback is not None else (lambda x, convergence: False)
+
+        result = multi_seed_diffusion(
+            penalized_obj,
+            bounds=bounds,
+            num_runs=10,  # Number of random seeds
+            popsize=15,  # Population size
+            maxiter=1000,  # Number of generations
+            mutation=(0.5, 1),  # Mutation range
+            recombination=0.7,  # Recombination rate
+            callback=cb,
+        )
+
+        if not result.success:
+            raise ValueError(
+                "Stochastic diffusion optimization failed: " + result.message
             )
 
-            if not result.success:
-                raise ValueError(
-                    "Dual annealing optimization failed: " + result.message
-                )
-
-            return result.x
-
-        if use_diffusion:
-
-            cb = callback if callback is not None else (lambda x, convergence: False)
-            result = multi_seed_diffusion(
-                penalized_obj,
-                bounds=bounds,
-                num_runs=10,  # Number of random seeds
-                popsize=15,  # Population size
-                maxiter=1000,  # Number of generations
-                mutation=(0.5, 1),  # Mutation range
-                recombination=0.7,  # Recombination rate
-                callback=cb,
-            )
-
-            if not result.success:
-                raise ValueError(
-                    "Stochastic diffusion optimization failed: " + result.message
-                )
-
-            return result.x
+        return result.x
     # --- Standard Local Solver Branch ---
     result = minimize(
         chosen_obj,
