@@ -210,7 +210,7 @@ def nested_clustered_optimization(
                 search_history=overall_search_history,
                 final_solution=final_weights.values,
                 objective_function=overall_objective,
-                grid_resolution=50,
+                grid_resolution=120,
                 title="Overall Max Sharpe Contour for Portfolio",
                 flip_objective=True,
             )
