@@ -2,6 +2,8 @@ import numpy as np
 from scipy.optimize import dual_annealing
 from tqdm import tqdm
 
+from utils import logger
+
 
 def multi_seed_dual_annealing(
     penalized_obj,
@@ -18,11 +20,9 @@ def multi_seed_dual_annealing(
 
     # Create an independent random generator
     global_rng = np.random.default_rng(42)  # Global RNG for reproducibility
-    
+
     # Wrap the iteration in tqdm to show a progress bar
-    for _ in tqdm(
-        range(num_runs), desc="Running dual annealing with multiple seeds"
-    ):
+    for _ in tqdm(range(num_runs), desc="Running dual annealing with multiple seeds"):
         seed = global_rng.integers(0, 1e6)  # Generate a random seed for each run
         result = dual_annealing(
             penalized_obj,
@@ -34,6 +34,7 @@ def multi_seed_dual_annealing(
             callback=cb,
             seed=seed,  # Different random seed for each run
         )
+        logger.debug(f"Annealing seed {seed}: {result.fun}")
         results.append(result)
 
     # Select the best result based on the objective function value

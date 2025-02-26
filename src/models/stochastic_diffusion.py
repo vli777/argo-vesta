@@ -2,6 +2,8 @@ import numpy as np
 from scipy.optimize import differential_evolution
 from tqdm import tqdm
 
+from utils import logger
+
 
 def multi_seed_diffusion(
     penalized_obj,
@@ -34,10 +36,14 @@ def multi_seed_diffusion(
     cb = callback if callback is not None else (lambda x, convergence: False)
     results = []
 
+    # Create an independent random generator
+    global_rng = np.random.default_rng(42)  # Global RNG for reproducibility
+
     # Wrap the iteration in tqdm to show a progress bar
-    for seed in tqdm(
+    for _ in tqdm(
         range(num_runs), desc="Running stochastic diffusion with multiple seeds"
     ):
+        seed = global_rng.integers(0, 1e6)  # Generate a random seed for each run
         result = differential_evolution(
             penalized_obj,
             bounds=bounds,
@@ -50,6 +56,7 @@ def multi_seed_diffusion(
             callback=cb,
             polish=True,  # Enable local optimization after global search
         )
+        logger.debug(f"Diffusion seed {seed}: {result.fun}")
         results.append(result)
 
     # Select the best result based on the objective function value
