@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import dual_annealing
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
 from utils import logger
@@ -19,25 +20,31 @@ def multi_seed_dual_annealing(
     results = []
 
     # Create an independent random generator
-    global_rng = np.random.default_rng(42)  # Global RNG for reproducibility
+    global_rng = np.random.default_rng(42)
+    seeds = [global_rng.integers(0, 1e6) for _ in range(num_runs)]
 
-    # Wrap the iteration in tqdm to show a progress bar
-    for _ in tqdm(range(num_runs), desc="Running dual annealing with multiple seeds"):
-        seed = global_rng.integers(0, 1e6)  # Generate a random seed for each run
-        result = dual_annealing(
-            penalized_obj,
-            bounds=bounds,
-            maxiter=maxiter,
-            initial_temp=initial_temp,
-            visit=visit,
-            accept=accept,
-            callback=cb,
-            seed=seed,  # Different random seed for each run
-        )
-        logger.debug(f"Annealing seed {seed}: {result.fun}")
-        results.append(result)
+    with ProcessPoolExecutor() as executor:
+        futures = {
+            executor.submit(
+                dual_annealing,
+                penalized_obj,
+                bounds=bounds,
+                maxiter=maxiter,
+                initial_temp=initial_temp,
+                visit=visit,
+                accept=accept,
+                callback=cb,
+                seed=seed,
+            ): seed
+            for seed in seeds
+        }
 
-    # Select the best result based on the objective function value
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Dual Annealing"
+        ):
+            result = future.result()
+            results.append(result)
+
     best_result = min(results, key=lambda r: r.fun)
 
     if not best_result.success:

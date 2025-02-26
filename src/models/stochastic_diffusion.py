@@ -1,4 +1,5 @@
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from scipy.optimize import differential_evolution
 from tqdm import tqdm
 
@@ -38,28 +39,32 @@ def multi_seed_diffusion(
 
     # Create an independent random generator
     global_rng = np.random.default_rng(42)  # Global RNG for reproducibility
+    seeds = [global_rng.integers(0, 1e6) for _ in range(num_runs)]
 
-    # Wrap the iteration in tqdm to show a progress bar
-    for _ in tqdm(
-        range(num_runs), desc="Running stochastic diffusion with multiple seeds"
-    ):
-        seed = global_rng.integers(0, 1e6)  # Generate a random seed for each run
-        result = differential_evolution(
-            penalized_obj,
-            bounds=bounds,
-            strategy="best1bin",
-            maxiter=maxiter,
-            popsize=popsize,
-            mutation=mutation,
-            recombination=recombination,
-            seed=seed,
-            callback=cb,
-            polish=True,  # Enable local optimization after global search
-        )
-        logger.debug(f"Diffusion seed {seed}: {result.fun}")
-        results.append(result)
+    with ProcessPoolExecutor() as executor:
+        futures = {
+            executor.submit(
+                differential_evolution,
+                penalized_obj,
+                bounds=bounds,
+                strategy="best1bin",
+                maxiter=maxiter,
+                popsize=popsize,
+                mutation=mutation,
+                recombination=recombination,
+                seed=seed,
+                callback=cb,
+                polish=True,
+            ): seed
+            for seed in seeds
+        }
 
-    # Select the best result based on the objective function value
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Stochastic Diffusion"
+        ):
+            result = future.result()
+            results.append(result)
+
     best_result = min(results, key=lambda r: r.fun)
 
     if not best_result.success:
