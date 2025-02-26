@@ -10,7 +10,7 @@ from models.pyomo_objective_models import (
     build_omega_model,
     build_sharpe_model,
 )
-from models.optimization_plot import plot_global_optimization
+
 from utils import logger
 from utils.performance_metrics import conditional_var
 
@@ -95,27 +95,34 @@ def optimize_weights_objective(
         np.ndarray: Optimized portfolio weights.
     """
     n = cov.shape[0]
-    if max_weight is None:
-        max_weight = 1.0
-    else:
-        max_weight = float(max_weight)
+    max_weight = float(max_weight) if max_weight is not None else 1.0
     # Ensure max_weight is at least equal to equal allocation
     max_weight = max(1.0 / n, max_weight)
     # Set lower bound based on whether shorting is allowed.
-    if allow_short:
-        lower_bound = -max_weight
-    else:
-        # If user provided a min_weight, use that; otherwise default to 0.
-        lower_bound = float(min_weight) if min_weight is not None else 0.0
-
+    lower_bound = (
+        -max_weight
+        if allow_short
+        else (float(min_weight) if min_weight is not None else 0.0)
+    )
     bounds = [(lower_bound, max_weight)] * n
+
+    # Precompute numpy arrays from cov and returns to avoid repeated conversions.
+    cov_arr = cov.to_numpy() if isinstance(cov, pd.DataFrame) else cov
+    if returns is not None:
+        returns_arr = (
+            returns.to_numpy() if isinstance(returns, pd.DataFrame) else returns
+        )
+    else:
+        returns_arr = None
+    if mu is not None:
+        mu_arr = mu.to_numpy() if isinstance(mu, pd.Series) else mu
+    else:
+        mu_arr = None
 
     # Define CVaR constraint using the conditional_var function.
     def cvar_constraint(w):
         # Ensure returns is a NumPy array before matrix multiplication:
-        port_returns = (
-            returns.to_numpy() if isinstance(returns, pd.DataFrame) else returns
-        ) @ w
+        port_returns = returns_arr @ w
         cvar_value = conditional_var(pd.Series(port_returns), alpha)
         # Constraint: cvar_limit - computed CVaR must be >= 0.
         # Convert to float if needed:
@@ -123,21 +130,13 @@ def optimize_weights_objective(
         return cvar_limit - cvar_value
 
     def vol_constraint(w):
-        port_vol = estimated_portfolio_volatility(w, cov)
-        # Ensure port_vol is a scalar, for example by taking the first element if it's a Series
-        if isinstance(port_vol, pd.Series):
-            port_vol = port_vol.iloc[0]
+        port_vol = estimated_portfolio_volatility(w, cov_arr)
         return vol_limit - port_vol
 
     def gross_exposure(w):
-        return float(max_gross_exposure - np.sum(np.abs(np.asarray(w))))
+        return float(max_gross_exposure - np.sum(np.abs(w)))
 
-    constraints = [
-        {
-            "type": "eq",
-            "fun": lambda w: float(np.sum(np.asarray(w), axis=0)) - target_sum,
-        },
-    ]
+    constraints = [{"type": "eq", "fun": lambda w: float(np.sum(w)) - target_sum}]
 
     # Add CVaR and max volatility
     if apply_constraints:
@@ -151,16 +150,15 @@ def optimize_weights_objective(
     # Define the objective function to be optimized.
     chosen_obj = None
     if objective.lower() == "sharpe":
-        if returns is None or mu is None:
+        if returns_arr is None or mu_arr is None:
             raise ValueError(
                 "Both historical returns and expected returns (mu) must be provided for Sharpe optimization."
             )
         if n < 50:
-            # logger.info("Optimizing for max Sharpe...")
+
             def obj(w: np.ndarray) -> float:
-                mu_arr = mu.to_numpy() if isinstance(mu, pd.Series) else mu
                 port_return = float(np.dot(w, mu_arr))
-                port_vol = estimated_portfolio_volatility(w, cov)
+                port_vol = estimated_portfolio_volatility(w, cov_arr)
                 return -port_return / port_vol if port_vol > 0 else 1e6
 
             chosen_obj = obj
@@ -215,7 +213,7 @@ def optimize_weights_objective(
         After solving, the portfolio weights are recovered as w = y / z (and then normalized
         to sum to target_sum).
         """
-        if returns is None or returns.empty:
+        if returns_arr is None or returns.empty:
             raise ValueError(
                 "Historical returns must be provided for Omega optimization."
             )
@@ -252,24 +250,22 @@ def optimize_weights_objective(
         return weights
 
     elif objective.lower() == "aggro":
-        if returns is None or mu is None:
+        if returns_arr is None or returns.empty:
             raise ValueError(
-                "Both historical returns and expected returns (mu) must be provided for aggro optimization."
+                "Historical returns must be provided for Omega optimization."
             )
 
         def obj(w: np.ndarray) -> float:
-            port_returns = returns.to_numpy() @ w
+            port_returns = returns_arr @ w
             cumulative_return = np.prod(1 + port_returns) - 1
             port_mean = np.mean(port_returns)
-            port_vol = estimated_portfolio_volatility(w, cov)
+            port_vol = estimated_portfolio_volatility(w, cov_arr)
             lpm = empirical_lpm(port_returns, target=target, order=order)
             kappa_val = (
-                (port_mean - target) / (lpm ** (1.0 / order)) if lpm > 1e-8 else -1e6
+                ((port_mean - target) / (lpm ** (1.0 / order))) if lpm > 1e-8 else -1e6
             )
             sharpe_val = port_mean / port_vol if port_vol > 0 else -1e6
-            combined = (
-                (1 / 3) * cumulative_return + (1 / 3) * sharpe_val + (1 / 3) * kappa_val
-            )
+            combined = (cumulative_return + sharpe_val + kappa_val) / 3.0
             return -combined
 
         chosen_obj = obj
@@ -277,9 +273,8 @@ def optimize_weights_objective(
     else:
 
         def obj(w: np.ndarray) -> float:
-            mu_arr = mu.to_numpy() if isinstance(mu, pd.Series) else mu
             port_return = float(np.dot(w, mu_arr))
-            port_vol = estimated_portfolio_volatility(w, cov)
+            port_vol = estimated_portfolio_volatility(w, cov_arr)
             return -port_return / port_vol if port_vol > 0 else 1e6
 
         chosen_obj = obj
@@ -326,35 +321,23 @@ def optimize_weights_objective(
     # --- Dual Annealing Branch ---
     if use_annealing:
         # Define a penalty for constraint violations.
-        def penalty(w):
-            pen = penalty_weight * abs(
-                float(np.sum(np.asarray(w), axis=0)) - target_sum
-            )
+        def penalty(w) -> float:
+            pen = penalty_weight * abs(np.sum(w) - target_sum)
             for con in constraints:
                 if con["type"] == "ineq":
-                    val = float(con["fun"](w))
+                    val = con["fun"](w)
                     if val < 0:
                         pen += penalty_weight * abs(val)
             return pen
 
-        def penalized_obj(w):
+        def penalized_obj(w) -> float:
             return chosen_obj(w) + penalty(w)
 
-        if callback is None:
-
-            def default_callback(x, f, context):
-                return False
-
-            cb = default_callback
-        else:
-            cb = callback
-
+        cb = callback if callback is not None else (lambda x, f, context: False)
         result = dual_annealing(penalized_obj, bounds=bounds, maxiter=1000, callback=cb)
         if not result.success:
             raise ValueError("Dual annealing optimization failed: " + result.message)
-        final_solution = result.x
-
-        return final_solution
+        return result.x
 
     # --- Standard Local Solver Branch ---
     result = minimize(
