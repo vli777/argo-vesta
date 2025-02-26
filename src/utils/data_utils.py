@@ -123,20 +123,20 @@ def get_stock_data(
     logger.info(f"Downloading {symbol} {start_date} - {end_date} ...")
 
     # Try Yahoo Finance first
-    try:
-        symbol_df = yf.download(
-            symbol, start=start_date, end=end_date, auto_adjust=False
-        )
-        if not symbol_df.empty:
-            return symbol_df
+    # try:
+    #     symbol_df = yf.download(
+    #         symbol, start=start_date, end=end_date, auto_adjust=False
+    #     )
+    #     if not symbol_df.empty:
+    #         return symbol_df
         # else:
         #     logger.warning(
         #         f"Yahoo Finance returned an empty DataFrame for {symbol}. Falling back to Schwab..."
         #     )
-    except (HTTPError, Exception) as e:
-        logger.error(
-            f"Failed to download {symbol} data from Yahoo Finance: {e}. Falling back to Schwab..."
-        )
+    # except (HTTPError, Exception) as e:
+    #     logger.error(
+    #         f"Failed to download {symbol} data from Yahoo Finance: {e}. Falling back to Schwab..."
+    #     )
 
     # Fallback to Charles Schwab API
     # logger.info(f"Trying Charles Schwab API for {symbol} data...")

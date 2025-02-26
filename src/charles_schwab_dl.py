@@ -9,8 +9,13 @@ BASE_URL = "https://api.schwabapi.com/marketdata/v1/pricehistory"
 
 
 def get_bearer_token():
-    load_dotenv()  # Reload environment variables each time
-    return os.getenv("SCHWAB_API_BEARER_TOKEN")
+    load_dotenv(override=True)  # Force reload and override existing env variables
+    token = os.getenv("SCHWAB_API_BEARER_TOKEN")
+    if not token:
+        raise ValueError(
+            "SCHWAB_API_BEARER_TOKEN is not set in the environment variables."
+        )
+    return token
 
 
 def download_schwab_data(
