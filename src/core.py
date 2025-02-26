@@ -365,7 +365,9 @@ def run_pipeline(
                 f"Test mode active: saved full_df.csv and limited data to {visible_length} records."
             )
 
-        logger.info(f"Running optimization with {len(valid_symbols)} assets.")
+        if period == longest_period:
+            logger.info(f"Running optimization with {len(valid_symbols)} assets.")
+
         run_optimization_and_save(
             df=df_period,
             config=config,
@@ -374,6 +376,7 @@ def run_pipeline(
             symbols=valid_symbols,
             stack=stack,
             years=period,
+            plot=config.plot_optimization and period == longest_period,
         )
 
     ################################
