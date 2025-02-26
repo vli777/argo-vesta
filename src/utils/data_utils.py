@@ -129,10 +129,10 @@ def get_stock_data(
     #     )
     #     if not symbol_df.empty:
     #         return symbol_df
-        # else:
-        #     logger.warning(
-        #         f"Yahoo Finance returned an empty DataFrame for {symbol}. Falling back to Schwab..."
-        #     )
+    # else:
+    #     logger.warning(
+    #         f"Yahoo Finance returned an empty DataFrame for {symbol}. Falling back to Schwab..."
+    #     )
     # except (HTTPError, Exception) as e:
     #     logger.error(
     #         f"Failed to download {symbol} data from Yahoo Finance: {e}. Falling back to Schwab..."
