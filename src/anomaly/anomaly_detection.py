@@ -9,7 +9,11 @@ from anomaly.plot_anomalies import plot_anomaly_overview
 from anomaly.isolation_forest import apply_isolation_forest
 from anomaly.plot_optimization_summary import plot_optimization_summary
 from anomaly.kalman_filter import apply_kalman_filter
-from anomaly.anomaly_utils import apply_fixed_zscore, get_cache_filename
+from anomaly.anomaly_utils import (
+    apply_fixed_zscore,
+    get_cache_filename,
+    update_tuning_cache,
+)
 from anomaly.optimize_anomaly_threshold import optimize_threshold_for_ticker
 from utils.logger import logger
 from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_pickle
@@ -68,6 +72,8 @@ def remove_anomalous_stocks(
     tuning_cache: Dict[str, Any] = (
         {} if reoptimize else load_parameters_from_pickle(cache_filename) or {}
     )
+    if returns_df is not None:
+        tuning_cache = update_tuning_cache(tuning_cache, returns_df.index)
 
     # Load the anomalous assets cache with expiration check.
     anomalous_cache_filename = "optuna_cache/anomalous_assets.pkl"

@@ -79,7 +79,8 @@ def plot_anomaly_overview(
         if not isinstance(anomaly_flags, pd.Series):
             anomaly_flags = pd.Series(False, index=series.index)
         # Slice anomaly_flags to the same date range as series.
-        anomaly_flags = anomaly_flags.loc[series.index]
+        anomaly_flags = anomaly_flags.reindex(series.index, fill_value=False)
+
         # Identify anomaly points.
         anomalies = series[anomaly_flags == True]
 
