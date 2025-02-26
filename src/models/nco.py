@@ -35,6 +35,7 @@ def nested_clustered_optimization(
     target_sum: float = 1.0,
     risk_free_rate: float = 0.0,
     use_annealing: bool = False,
+    use_diffusion: bool = False,
     plot: bool = False,
 ) -> pd.Series:
     """
@@ -55,6 +56,7 @@ def nested_clustered_optimization(
         target_sum (float): Sum of weights (default 1.0).
         risk_free_rate (float): Risk free rate (default 0.0).
         use_annealing (bool): Use dual annealing to search for global optima.
+        use_diffusion (bool): Use stochastic diffusion to search for global optima.
 
     Returns:
         pd.Series: Final portfolio weights.
@@ -113,6 +115,7 @@ def nested_clustered_optimization(
             max_gross_exposure=max_gross_exposure,
             target_sum=target_sum,
             use_annealing=use_annealing,
+            use_diffusion=use_diffusion,
             callback=intra_callback(cluster),
         )
         intra_weights.loc[cluster_assets, cluster] = weights
@@ -150,6 +153,7 @@ def nested_clustered_optimization(
             max_gross_exposure=max_gross_exposure,
             target_sum=target_sum,
             use_annealing=use_annealing,
+            use_diffusion=use_diffusion,
             callback=inter_callback,
         ),
         index=unique_clusters,

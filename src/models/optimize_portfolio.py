@@ -10,6 +10,7 @@ from models.pyomo_objective_models import (
     build_sharpe_model,
 )
 from models.simulated_annealing import multi_seed_dual_annealing
+from models.stochastic_diffusion import multi_seed_diffusion
 from utils import logger
 from utils.performance_metrics import conditional_var
 
@@ -58,8 +59,9 @@ def optimize_weights_objective(
     solver_method: str = "SLSQP",
     initial_guess: Optional[np.ndarray] = None,
     apply_constraints: bool = False,
-    use_annealing: bool = False,  # New flag to choose dual annealing
-    penalty_weight: float = 1e6,  # Penalty multiplier for constraint violations
+    use_annealing: bool = False,
+    use_diffusion: bool = False,
+    penalty_weight: float = 1e6,  
     callback: Optional[Callable[[np.ndarray, float, Any], bool]] = None,
 ) -> np.ndarray:
     """
@@ -342,7 +344,7 @@ def optimize_weights_objective(
             maxiter=10000,
             initial_temp=10000,
             visit=10,
-            accept=-20.0,
+            accept=-10.0,
             callback=cb,
         )
 
@@ -351,6 +353,40 @@ def optimize_weights_objective(
 
         return result.x
 
+    if use_diffusion:
+        # Define a penalty for constraint violations.
+        def penalty(w) -> float:
+            pen = penalty_weight * abs(np.sum(w) - target_sum)
+            for con in constraints:
+                if con["type"] == "ineq":
+                    val = con["fun"](w)
+                    if val < 0:
+                        pen += penalty_weight * abs(val)
+            return pen
+
+        def penalized_obj(w) -> float:
+            return chosen_obj(w) + penalty(w)
+
+        cb = callback if callback is not None else (lambda x, convergence: False)
+
+        # Call the multi-seed stochastic diffusion function with a progress bar
+        result = multi_seed_diffusion(
+            penalized_obj,
+            bounds=bounds,
+            num_runs=20,  # Number of random seeds
+            popsize=15,  # Population size
+            maxiter=1000,  # Number of generations
+            mutation=(0.5, 1),  # Mutation range
+            recombination=0.7,  # Recombination rate
+            callback=cb,
+        )
+
+        if not result.success:
+            raise ValueError(
+                "Stochastic diffusion optimization failed: " + result.message
+            )
+
+        return result.x
     # --- Standard Local Solver Branch ---
     result = minimize(
         chosen_obj,

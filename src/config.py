@@ -38,6 +38,7 @@ class Config:
 
     optimization_objective: Optional[str]
     use_global_optimization: bool
+    global_optimization_type: Optional[str]  # Can be "annealing", "diffusion", or None
 
     test_mode: bool
     test_data_visible_pct: float
@@ -97,6 +98,7 @@ class Config:
             optimization_objective=config_dict.get("optimization_objective")
             or "sharpe",
             use_global_optimization=config_dict.get("use_global_optimization", False),
+            global_optimization_type=config_dict.get("global_optimization_type"),
             test_mode=config_dict.get("test_mode", False),
             test_data_visible_pct=config_dict.get("test_data_visible_pct", 0.1),
         )
