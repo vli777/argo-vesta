@@ -4,6 +4,7 @@ from typing import Optional, Union, Dict
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_samples
 from functools import partial
+from multiprocessing import Manager
 
 from models.optimize_portfolio import (
     estimated_portfolio_volatility,
@@ -93,13 +94,14 @@ def nested_clustered_optimization(
     else:
         target = risk_free_rate
 
+    manager = Manager()
     # --- Cluster assets ---
     corr = cov_to_corr(cov)
     labels = cluster_kmeans(corr, max_clusters)
     unique_clusters = np.unique(labels)
 
     # --- Intra-cluster optimization (per cluster) ---
-    intra_search_histories = {}
+    intra_search_histories = manager.dict()
     intra_weights = pd.DataFrame(
         0, index=cov.index, columns=unique_clusters, dtype=float
     )
@@ -150,7 +152,7 @@ def nested_clustered_optimization(
         reduced_returns = None
 
     # Record inter-cluster search history.
-    inter_search_history = []
+    inter_search_history = manager.list()
     inter_cb = partial(default_inter_callback, history_list=inter_search_history)
     inter_weights = pd.Series(
         optimize_weights_objective(
