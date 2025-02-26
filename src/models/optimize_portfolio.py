@@ -340,9 +340,9 @@ def optimize_weights_objective(
         result = multi_seed_diffusion(
             penalized_obj,
             bounds=bounds,
-            num_runs=10,  # Number of random seeds
+            num_runs=3,  # Number of random seeds
             popsize=15,  # Population size
-            maxiter=1000,  # Number of generations
+            maxiter=10000,  # Number of generations
             mutation=(0.5, 1),  # Mutation range
             recombination=0.7,  # Recombination rate
             callback=cb,

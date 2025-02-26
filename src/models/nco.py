@@ -21,12 +21,15 @@ def cov_to_corr(cov):
     return corr
 
 
-def default_intra_callback(x, f, ctx, cl, history_dict):
+def default_intra_callback(x, f, *args, cl, history_dict):
+    """
+    A default callback that appends the candidate x to the history for cluster cl.
+    """
     history_dict.setdefault(cl, []).append(x.copy())
     return False
 
 
-def default_inter_callback(x, f, ctx, history_list):
+def default_inter_callback(x, f, *args, history_list):
     history_list.append(x.copy())
     return False
 
@@ -111,6 +114,7 @@ def nested_clustered_optimization(
         intra_cb = partial(
             default_intra_callback, cl=cluster, history_dict=intra_search_histories
         )
+
         weights = optimize_weights_objective(
             cluster_cov,
             mu=cluster_mu,
