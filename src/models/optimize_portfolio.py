@@ -4,13 +4,12 @@ from typing import Any, Callable, Optional, Union, Dict
 from scipy.optimize import minimize
 import pyomo.environ as pyo
 from pyomo.opt import TerminationCondition, SolverStatus
-from scipy.optimize import minimize, dual_annealing
 
 from models.pyomo_objective_models import (
     build_omega_model,
     build_sharpe_model,
 )
-
+from models.simulated_annealing import multi_seed_dual_annealing
 from utils import logger
 from utils.performance_metrics import conditional_var
 
@@ -334,9 +333,22 @@ def optimize_weights_objective(
             return chosen_obj(w) + penalty(w)
 
         cb = callback if callback is not None else (lambda x, f, context: False)
-        result = dual_annealing(penalized_obj, bounds=bounds, maxiter=1000, callback=cb)
+
+        # Call the multi-seed dual annealing function
+        result = multi_seed_dual_annealing(
+            penalized_obj,
+            bounds=bounds,
+            num_runs=20,  # Run the optimizer 20 times with different seeds
+            maxiter=10000,
+            initial_temp=10000,
+            visit=10,
+            accept=-20.0,
+            callback=cb,
+        )
+
         if not result.success:
             raise ValueError("Dual annealing optimization failed: " + result.message)
+
         return result.x
 
     # --- Standard Local Solver Branch ---
