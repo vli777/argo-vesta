@@ -61,7 +61,7 @@ def optimize_weights_objective(
     apply_constraints: bool = False,
     use_annealing: bool = False,
     use_diffusion: bool = False,
-    penalty_weight: float = 1e6,  
+    penalty_weight: float = 1e6,
     callback: Optional[Callable[[np.ndarray, float, Any], bool]] = None,
 ) -> np.ndarray:
     """
@@ -122,12 +122,8 @@ def optimize_weights_objective(
 
     # Define CVaR constraint using the conditional_var function.
     def cvar_constraint(w):
-        # Ensure returns is a NumPy array before matrix multiplication:
         port_returns = returns_arr @ w
-        cvar_value = conditional_var(pd.Series(port_returns), alpha)
-        # Constraint: cvar_limit - computed CVaR must be >= 0.
-        # Convert to float if needed:
-        cvar_value = float(cvar_value)
+        cvar_value = float(conditional_var(pd.Series(port_returns), alpha))
         return cvar_limit - cvar_value
 
     def vol_constraint(w):
@@ -160,7 +156,8 @@ def optimize_weights_objective(
             def obj(w: np.ndarray) -> float:
                 port_return = float(np.dot(w, mu_arr))
                 port_vol = estimated_portfolio_volatility(w, cov_arr)
-                return -port_return / port_vol if port_vol > 0 else 1e6
+                sharpe = port_return / port_vol if port_vol > 0 else 1e6
+                return -sharpe
 
             chosen_obj = obj
         else:
@@ -218,37 +215,53 @@ def optimize_weights_objective(
             raise ValueError(
                 "Historical returns must be provided for Omega optimization."
             )
-        model = build_omega_model(
-            cov=cov,
-            returns=returns,
-            target=target,
-            target_sum=target_sum,
-            max_weight=max_weight,
-            allow_short=allow_short,
-            vol_limit=vol_limit if apply_constraints else None,
-            cvar_limit=cvar_limit if apply_constraints else None,
-            alpha=alpha,
-        )
-        # Since the transformed omega formulation is linear, use an LP solver like CBC.
-        solver = pyo.SolverFactory(
-            "cbc",
-            executable="H:/Solvers/Cbc-releases.2.10.12-w64-msvc17-md/bin/cbc.exe",
-        )
-        results = solver.solve(model, tee=False)
-        if (results.solver.status != SolverStatus.ok) or (
-            results.solver.termination_condition != TerminationCondition.optimal
-        ):
-            raise RuntimeError(
-                "Solver did not converge! Status: {results.solver.status}, Termination: {results.solver.termination_condition}"
+
+        if n < 50:
+            theta = target
+
+            def obj(w: np.ndarray) -> float:
+                port_returns = returns_arr.dot(w)
+                expected_return = np.mean(port_returns)
+                shortfall = np.maximum(theta - port_returns, 0)
+                expected_shortfall = np.mean(shortfall)
+                if expected_shortfall < 1e-8:
+                    expected_shortfall = 1e-8
+                omega = (expected_return - theta) / expected_shortfall + 1
+                return -omega
+
+            chosen_obj = obj
+        else:
+            model = build_omega_model(
+                cov=cov,
+                returns=returns,
+                target=target,
+                target_sum=target_sum,
+                max_weight=max_weight,
+                allow_short=allow_short,
+                vol_limit=vol_limit if apply_constraints else None,
+                cvar_limit=cvar_limit if apply_constraints else None,
+                alpha=alpha,
             )
-        # Recover weights from y and z: w = y/z.
-        z_val = pyo.value(model.z)
-        if z_val is None or abs(z_val) < 1e-8:
-            raise RuntimeError("Invalid scaling value in Omega optimization.")
-        weights = np.array([pyo.value(model.y[i]) for i in model.assets]) / z_val
-        # Normalize to sum to target_sum.
-        weights = weights / np.sum(weights) * target_sum
-        return weights
+            # Since the transformed omega formulation is linear, use an LP solver like CBC.
+            solver = pyo.SolverFactory(
+                "cbc",
+                executable="H:/Solvers/Cbc-releases.2.10.12-w64-msvc17-md/bin/cbc.exe",
+            )
+            results = solver.solve(model, tee=False)
+            if (results.solver.status != SolverStatus.ok) or (
+                results.solver.termination_condition != TerminationCondition.optimal
+            ):
+                raise RuntimeError(
+                    "Solver did not converge! Status: {results.solver.status}, Termination: {results.solver.termination_condition}"
+                )
+            # Recover weights from y and z: w = y/z.
+            z_val = pyo.value(model.z)
+            if z_val is None or abs(z_val) < 1e-8:
+                raise RuntimeError("Invalid scaling value in Omega optimization.")
+            weights = np.array([pyo.value(model.y[i]) for i in model.assets]) / z_val
+            # Normalize to sum to target_sum.
+            weights = weights / np.sum(weights) * target_sum
+            return weights
 
     elif objective.lower() == "aggro":
         if returns_arr is None or returns.empty:
@@ -295,19 +308,14 @@ def optimize_weights_objective(
 
     # Initialize weights considering relaxed min_weight and max_weight constraints
     if initial_guess is not None:
-        # Clip initial guess to ensure it is within bounds
         init_weights = np.clip(initial_guess, lower_bound, max_weight)
     else:
         if allow_short:
-            # Randomly initialize weights allowing for short positions
             init_weights = np.random.uniform(lower_bound, max_weight, size=n)
-            # Normalize to sum to target_sum, maintaining potential short positions
             init_weights /= np.sum(np.abs(init_weights))
             init_weights *= target_sum
         else:
-            # Uniform initialization for long-only portfolios
             init_weights = np.full(n, target_sum / n)
-            # Ensure weights are within specified bounds
             if min_weight is not None:
                 init_weights = np.maximum(init_weights, min_weight)
             init_weights = np.minimum(init_weights, max_weight)
@@ -319,9 +327,9 @@ def optimize_weights_objective(
     ):
         init_weights *= 0.95
 
-    # --- Dual Annealing Branch ---
-    if use_annealing:
-        # Define a penalty for constraint violations.
+    # --- Global Optimization Branch ---
+    if use_annealing or use_diffusion:
+
         def penalty(w) -> float:
             pen = penalty_weight * abs(np.sum(w) - target_sum)
             for con in constraints:
@@ -334,59 +342,47 @@ def optimize_weights_objective(
         def penalized_obj(w) -> float:
             return chosen_obj(w) + penalty(w)
 
-        cb = callback if callback is not None else (lambda x, f, context: False)
+        if use_annealing:
 
-        # Call the multi-seed dual annealing function
-        result = multi_seed_dual_annealing(
-            penalized_obj,
-            bounds=bounds,
-            num_runs=20,  # Run the optimizer 20 times with different seeds
-            maxiter=10000,
-            initial_temp=10000,
-            visit=10,
-            accept=-10.0,
-            callback=cb,
-        )
-
-        if not result.success:
-            raise ValueError("Dual annealing optimization failed: " + result.message)
-
-        return result.x
-
-    if use_diffusion:
-        # Define a penalty for constraint violations.
-        def penalty(w) -> float:
-            pen = penalty_weight * abs(np.sum(w) - target_sum)
-            for con in constraints:
-                if con["type"] == "ineq":
-                    val = con["fun"](w)
-                    if val < 0:
-                        pen += penalty_weight * abs(val)
-            return pen
-
-        def penalized_obj(w) -> float:
-            return chosen_obj(w) + penalty(w)
-
-        cb = callback if callback is not None else (lambda x, convergence: False)
-
-        # Call the multi-seed stochastic diffusion function with a progress bar
-        result = multi_seed_diffusion(
-            penalized_obj,
-            bounds=bounds,
-            num_runs=20,  # Number of random seeds
-            popsize=15,  # Population size
-            maxiter=1000,  # Number of generations
-            mutation=(0.5, 1),  # Mutation range
-            recombination=0.7,  # Recombination rate
-            callback=cb,
-        )
-
-        if not result.success:
-            raise ValueError(
-                "Stochastic diffusion optimization failed: " + result.message
+            cb = callback if callback is not None else (lambda x, f, context: False)
+            result = multi_seed_dual_annealing(
+                penalized_obj,
+                bounds=bounds,
+                num_runs=10,
+                maxiter=10000,
+                initial_temp=10000,
+                visit=10,
+                accept=-10.0,
+                callback=cb,
             )
 
-        return result.x
+            if not result.success:
+                raise ValueError(
+                    "Dual annealing optimization failed: " + result.message
+                )
+
+            return result.x
+
+        if use_diffusion:
+
+            cb = callback if callback is not None else (lambda x, convergence: False)
+            result = multi_seed_diffusion(
+                penalized_obj,
+                bounds=bounds,
+                num_runs=10,  # Number of random seeds
+                popsize=15,  # Population size
+                maxiter=1000,  # Number of generations
+                mutation=(0.5, 1),  # Mutation range
+                recombination=0.7,  # Recombination rate
+                callback=cb,
+            )
+
+            if not result.success:
+                raise ValueError(
+                    "Stochastic diffusion optimization failed: " + result.message
+                )
+
+            return result.x
     # --- Standard Local Solver Branch ---
     result = minimize(
         chosen_obj,
