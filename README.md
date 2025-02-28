@@ -1,13 +1,15 @@
 # PyPort
 Modern Portfolio Optimization 
 
-# Upcoming 
+# In Progress 
 - [x] OU mean reversion and multi-asset statistical arbitrage
 ![image](https://github.com/user-attachments/assets/e838a18d-7173-4102-91eb-40da5c8a96dd)
 ![image](https://github.com/user-attachments/assets/c9b31d53-ef5e-46c9-a39f-e04aea618fe8)
 - [x] Return-risk-sharpe profile of portfolio assets to see how much they contribute
+![return risk](https://github.com/user-attachments/assets/1baeaec5-694d-43df-8b39-5c709de583a4)
 - [x] New unified strategy optimizers with vol and CVaR constraints
 - [x] Global optimization with dual annealing and stochastic diffusion
+![optimization contour plot](https://github.com/user-attachments/assets/25f46c97-1118-4e92-a635-6b62215eba78)
 - [ ] DuckDB migration for faster data loading
 
 # February 2025 
@@ -22,8 +24,8 @@ Modern Portfolio Optimization
 - [x] HDBSCAN clustering for de-correlation
 ![image](https://github.com/user-attachments/assets/2187106b-dad4-49cb-a005-597f50c9b089)
 - [x] Robust Z-score Mean Reversion with Volatility-Adaptive Parameters and Stateful Signals
-![image](https://github.com/user-attachments/assets/1c4a3c0f-6d34-4e2b-b8b4-66fa58e43bef)
-
+![optimal zscore reversion parameters](https://github.com/user-attachments/assets/ae2fed1a-900e-4acc-b6f7-159313f26d7f)
+![reversion](https://github.com/user-attachments/assets/03948afb-904b-438d-940b-23c9a69ca9d1)
 
 # January 2025
 - Reworked implementation of Nested Clustering (https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3469961) with vector ops => much faster!
