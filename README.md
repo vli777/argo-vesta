@@ -22,7 +22,7 @@ Modern Portfolio Optimization
 - [x] Anomaly detection with Isolation Forest
 ![image](https://github.com/user-attachments/assets/bab5d481-98eb-441a-9f6a-aea95d30b204)
 - [x] HDBSCAN clustering for de-correlation
-![image](https://github.com/user-attachments/assets/2187106b-dad4-49cb-a005-597f50c9b089)
+![tsne cluster](https://github.com/user-attachments/assets/5c7aa439-775f-4ceb-b8e4-00332aaf152c)
 - [x] Robust Z-score Mean Reversion with Volatility-Adaptive Parameters and Stateful Signals
 ![optimal zscore reversion parameters](https://github.com/user-attachments/assets/ae2fed1a-900e-4acc-b6f7-159313f26d7f)
 ![reversion](https://github.com/user-attachments/assets/03948afb-904b-438d-940b-23c9a69ca9d1)
