@@ -88,6 +88,7 @@ def output(
     cvar = conditional_var(portfolio_returns)
     max_dd = max_drawdown(portfolio_cumulative_returns)
     time_uw = time_under_water(portfolio_cumulative_returns)
+    boxplot_stats = generate_boxplot_data(all_daily_returns)
 
     # --- Load market data and compute market returns over the same period
     market_file = Path(config.data_dir) / "SPY.parquet"
@@ -155,10 +156,13 @@ def output(
 
     # Print portfolio allocation in tab-separated format
     sorted_weights = sorted(clean_weights.items(), key=lambda kv: kv[1], reverse=True)
-    for asset, weight in sorted_weights:
-        print(f"{asset}\t{weight * 100:.2f}%")
+    print("Asset\tWeight\tExpected Daily Return")
+    for asset, weight in sorted_weights:        
+        q1 = boxplot_stats[asset]["q1"] * 100
+        q3 = boxplot_stats[asset]["q3"] * 100           
+        print(f"{asset}\t{weight * 100:.2f}%\t{q1:.2f} to {q3:.2f}%")
 
-    return all_daily_returns, all_cumulative_returns
+    return all_daily_returns, all_cumulative_returns, boxplot_stats
 
 
 def output_results(
@@ -205,7 +209,7 @@ def compute_performance_results(
         return_contributions_pct, risk_contributions_pct, valid_symbols
     """
     # Compute daily & cumulative returns
-    daily_returns, cumulative_returns = output(
+    daily_returns, cumulative_returns, boxplot_stats = output(
         data=data,
         start_date=start_date,
         end_date=end_date,
@@ -215,8 +219,6 @@ def compute_performance_results(
         time_period=sorted_time_periods[0],
         config=config,
     )
-
-    boxplot_stats = generate_boxplot_data(daily_returns)
 
     # Filter valid symbols: those present in cumulative_returns
     valid_symbols = [s for s in sorted_symbols if s in cumulative_returns.columns]
