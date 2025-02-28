@@ -7,6 +7,7 @@ Modern Portfolio Optimization
 ![image](https://github.com/user-attachments/assets/c9b31d53-ef5e-46c9-a39f-e04aea618fe8)
 - [x] Return-risk-sharpe profile of portfolio assets to see how much they contribute
 - [x] New unified strategy optimizers with vol and CVaR constraints
+- [x] Global optimization with dual annealing and stochastic diffusion
 - [ ] DuckDB migration for faster data loading
 
 # February 2025 
