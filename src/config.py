@@ -29,6 +29,7 @@ class Config:
     plot_anomalies: bool
     plot_clustering: bool
     plot_reversion: bool
+    plot_optimization: bool
 
     use_anomaly_filter: bool
     use_decorrelation: bool
@@ -36,6 +37,8 @@ class Config:
     reversion_type: Optional[str]  # Can be "ou", "z", or None
 
     optimization_objective: Optional[str]
+    use_global_optimization: bool
+    global_optimization_type: Optional[str]  # Can be "annealing", "diffusion", or None
 
     test_mode: bool
     test_data_visible_pct: float
@@ -87,12 +90,15 @@ class Config:
             plot_clustering=config_dict.get("plot_clustering", False),
             plot_anomalies=config_dict.get("plot_anomalies", False),
             plot_reversion=config_dict.get("plot_reversion", False),
+            plot_optimization=config_dict.get("plot_optimization", False),
             use_anomaly_filter=config_dict.get("use_anomaly_filter", False),
             use_decorrelation=config_dict.get("use_decorrelation", False),
             use_reversion=use_reversion,
             reversion_type=reversion_type,  # Defaults to "ou" if enabled, else None
             optimization_objective=config_dict.get("optimization_objective")
             or "sharpe",
+            use_global_optimization=config_dict.get("use_global_optimization", False),
+            global_optimization_type=config_dict.get("global_optimization_type"),
             test_mode=config_dict.get("test_mode", False),
             test_data_visible_pct=config_dict.get("test_data_visible_pct", 0.1),
         )

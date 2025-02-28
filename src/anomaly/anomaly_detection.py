@@ -9,7 +9,11 @@ from anomaly.plot_anomalies import plot_anomaly_overview
 from anomaly.isolation_forest import apply_isolation_forest
 from anomaly.plot_optimization_summary import plot_optimization_summary
 from anomaly.kalman_filter import apply_kalman_filter
-from anomaly.anomaly_utils import apply_fixed_zscore, get_cache_filename
+from anomaly.anomaly_utils import (
+    apply_fixed_zscore,
+    get_cache_filename,
+    update_tuning_cache,
+)
 from anomaly.optimize_anomaly_threshold import optimize_threshold_for_ticker
 from utils.logger import logger
 from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_pickle
@@ -24,8 +28,8 @@ def remove_anomalous_stocks(
     plot: bool = False,
     n_jobs: int = -1,
     reoptimize: bool = False,
-    max_anomaly_fraction: float = 0.01,
     contamination: Union[float, str, None] = None,
+    max_anomaly_fraction: float = 0.01,
 ) -> List[str]:
     """
     Filters out stocks with anomalous returns using Isolation Forest (IF),
@@ -42,8 +46,8 @@ def remove_anomalous_stocks(
         plot (bool): If True, generate anomaly and optimization plots.
         n_jobs (int): Number of parallel jobs to run.
         reoptimize (bool): If True, bypass cache and reoptimize thresholds.
-        max_anomaly_fraction (float): Maximum fraction of anomalous data allowed per stock.
         contamination (Union[float, str, None]): Contamination parameter for Isolation Forest.
+        max_anomaly_fraction (float): Maximum fraction of anomalous data allowed per stock.
 
     Returns:
         List[str]: List of tickers that are not flagged as anomalous.
@@ -68,6 +72,8 @@ def remove_anomalous_stocks(
     tuning_cache: Dict[str, Any] = (
         {} if reoptimize else load_parameters_from_pickle(cache_filename) or {}
     )
+    if returns_df is not None:
+        tuning_cache = update_tuning_cache(tuning_cache, returns_df.index)
 
     # Load the anomalous assets cache with expiration check.
     anomalous_cache_filename = "optuna_cache/anomalous_assets.pkl"
@@ -86,13 +92,10 @@ def remove_anomalous_stocks(
         anomalous_cache: List[str] = anomalous_cache_data.get("anomalous_stocks", [])
 
     def process_ticker(stock: str) -> Optional[Dict[str, Any]]:
-        # If the stock is already flagged as anomalous and we're not reoptimizing,
-        # try to return its full ticker info from the tuning cache.
         if (stock in anomalous_cache) and not reoptimize:
             ticker_info = tuning_cache.get(stock)
             if ticker_info is not None:
                 return ticker_info
-            # If ticker info is missing, fall through to reprocessing.
 
         series = returns_df[stock].dropna()
         if series.empty:
@@ -106,7 +109,7 @@ def remove_anomalous_stocks(
                 ticker_info = optimize_threshold_for_ticker(
                     series, weight_dict, stock, method, contamination=contamination_val
                 )
-            # Ensure the threshold is set; default to 6.0 if missing.
+
             thresh = ticker_info.get("threshold", 6.0)
             if thresh is None:
                 logger.error(f"Threshold for stock {stock} is None. Defaulting to 6.0.")
@@ -137,12 +140,29 @@ def remove_anomalous_stocks(
         delayed(process_ticker)(stock) for stock in returns_df.columns
     )
 
+    # Collect anomaly fractions for all processed tickers.
+    anomaly_fractions = []
     new_anomalous_stocks: List[str] = []
     for info in processed_info:
         if info is None:
             continue
         tuning_cache[info["stock"]] = info
-        if info["anomaly_fraction"] > max_anomaly_fraction:
+        anomaly_fractions.append(info["anomaly_fraction"])
+
+    # Determine a dynamic threshold.
+    if anomaly_fractions:
+        median_fraction = np.median(anomaly_fractions)
+        mad_fraction = np.median(np.abs(anomaly_fractions - median_fraction))
+        # Use median + 1.5 * MAD as a threshold (you can adjust the multiplier)
+        dynamic_threshold = median_fraction + 1.5 * mad_fraction
+        logger.info(f"Dynamic max anomaly fraction set to: {dynamic_threshold:.4f}")
+    else:
+        dynamic_threshold = max_anomaly_fraction  # fallback
+
+    for info in processed_info:
+        if info is None:
+            continue
+        if info["anomaly_fraction"] > dynamic_threshold:
             new_anomalous_stocks.append(info["stock"])
 
     # Update the tuning parameters cache.

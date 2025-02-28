@@ -19,6 +19,8 @@ portfolio_risk_priority: str # Prioritize 'vol' or 'cvar' while allowing the oth
 risk_free_rate: float # e.g. T-bill return, default 0.0
 allow_short: bool # Whether to allow shorting (WIP)
 max_gross_exposure: float # Portfolio max gross exposure constraint when shorting is enabled
+use_global_optimization: bool # Uses metaheuristics to search for a global optimum 
+global_optimization_type: str # Specify type of metaheuristic to use e.g. 'annealing', 'diffusion'
 
 plot_daily_returns: bool # Whether to plot daily returns
 plot_cumulative_returns: bool # Whether to plot cumulative returns
@@ -26,6 +28,7 @@ plot_contribution: bool # Whether to plot return - risk contribution
 plot_clustering: bool # Where to plot hierarchical clustering dendrogram
 plot_anomalies: bool # Whether to plot anomalies detected by Kalman filter
 plot_reversion: bool # Whether to plot mean reversion parameters
+plot_optimization: bool # Whether to plot the optimization search space
 
 use_anomaly_filter: bool # Whether to filter assets with anomalous returns
 use_decorrelation: bool # Whether to filter correlated assets

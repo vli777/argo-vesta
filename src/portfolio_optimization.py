@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 from sklearn.covariance import LedoitWolf
 
-from result_output import output_results
 from config import Config
 from models.nco import nested_clustered_optimization
 from models.optimize_portfolio import estimated_portfolio_volatility
@@ -53,6 +52,7 @@ def run_optimization_and_save(
     symbols: List[str],
     stack: Dict,
     years: str,
+    plot: bool,
 ):
     final_weights = None
 
@@ -103,20 +103,33 @@ def run_optimization_and_save(
         mu_annual = mu_annual.loc[valid_assets]
         mu_annual = mu_annual.reindex(valid_assets)
 
+        min_weight = config.min_weight
         max_weight = config.max_weight
         optimization_objective = config.optimization_objective
         allow_short = config.allow_short
         max_gross_exposure = config.max_gross_exposure
         risk_free_rate = config.risk_free_rate
         risk_free_rate_log_daily = np.log(1 + risk_free_rate) / trading_days_per_year
+        use_annealing = (
+            config.use_global_optimization
+            and config.global_optimization_type == "annealing"
+        )
+        use_diffusion = (
+            config.use_global_optimization
+            and config.global_optimization_type == "diffusion"
+        )
 
         model_args = {
             "returns": asset_returns,
+            "min_weight": min_weight,
             "max_weight": max_weight,
             "objective": optimization_objective,
             "allow_short": allow_short,
             "max_gross_exposure": max_gross_exposure,
             "risk_free_rate": risk_free_rate_log_daily,
+            "use_annealing": use_annealing,
+            "use_diffusion": use_diffusion,
+            "plot": plot,
         }
 
         try:
@@ -170,14 +183,3 @@ def run_optimization_and_save(
                 f"No valid weights generated for {model} {optimization_objective} ({years} years)."
             )
             final_weights = pd.Series(dtype=float)  # Default empty Series
-
-        # Output results for individual optimizations
-        # output_results(
-        #     df=df,
-        #     weights=final_weights,
-        #     model_name=f"{model} {config.optimization_objective}",
-        #     start_date=start_date,
-        #     end_date=end_date,
-        #     years=years,
-        #     config=config,
-        # )

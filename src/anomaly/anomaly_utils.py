@@ -55,3 +55,26 @@ def apply_fixed_zscore(series: pd.Series, threshold: float = 3.0):
     residuals = (series - series.mean()) / series.std()
     anomaly_flags = np.abs(residuals) > threshold
     return anomaly_flags, series.copy()
+
+
+def update_tuning_cache(cache: dict, new_index: pd.Index) -> dict:
+    """
+    Update the tuning cache so that each asset's 'estimates' Series is reindexed
+    to match the new index from the returns DataFrame.
+
+    Args:
+        cache (dict): The cached tuning parameters (e.g., loaded from anomaly_thresholds_IF.pkl).
+                      Each asset's entry is expected to be a dict with an 'estimates' key containing a pd.Series.
+        new_index (pd.Index): The new DateTimeIndex from the latest returns DataFrame.
+
+    Returns:
+        dict: The updated cache dictionary.
+    """
+    updated_cache = {}
+    for stock, info in cache.items():
+        if isinstance(info, dict):
+            for key in ["anomaly_flags", "estimates"]:
+                if key in info and isinstance(info[key], pd.Series):
+                    info[key] = info[key].reindex(new_index, fill_value=np.nan)
+        updated_cache[stock] = info
+    return updated_cache
