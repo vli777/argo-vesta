@@ -5,6 +5,9 @@ from sklearn.cluster import SpectralClustering
 import logging
 from typing import List, Optional
 
+from correlation.plot_clusters import visualize_clusters_tsne
+from models.optimizer_utils import get_objective_weights, strategy_performance_metrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,44 +29,12 @@ def compute_affinity_matrix(returns_df: pd.DataFrame) -> np.ndarray:
     return affinity
 
 
-def compute_performance_metrics(
-    returns_df: pd.DataFrame, risk_free_rate: float = 0.0
-) -> pd.Series:
-    """
-    Placeholder for your performance metric computation.
-    Replace this with your actual function.
-
-    For example, you might compute a Sharpe ratio or composite score for each asset.
-    """
-    # Here we simply compute mean returns as a stand-in.
-    perf = returns_df.mean()
-    return perf
-
-
-def visualize_clusters_tsne(returns_df: pd.DataFrame, cluster_labels: np.ndarray):
-    """
-    Placeholder for your TSNE visualization.
-    Replace this with your actual plotting function.
-    """
-    import matplotlib.pyplot as plt
-    from sklearn.manifold import TSNE
-
-    tsne = TSNE(n_components=2, random_state=42)
-    tsne_results = tsne.fit_transform(returns_df.T.values)
-    plt.figure(figsize=(8, 6))
-    scatter = plt.scatter(
-        tsne_results[:, 0], tsne_results[:, 1], c=cluster_labels, cmap="tab20", s=50
-    )
-    plt.title("TSNE of Asset Returns Clusters")
-    plt.colorbar(scatter)
-    plt.show()
-
-
 def filter_correlated_groups_spectral(
     returns_df: pd.DataFrame,
     risk_free_rate: float = 0.0,
     n_clusters: Optional[int] = None,
     top_n_per_cluster: int = 1,
+    objective: str = "sharpe",
     plot: bool = False,
 ) -> List[str]:
     """
@@ -106,8 +77,13 @@ def filter_correlated_groups_spectral(
         clusters.setdefault(label, []).append(ticker)
     logger.info(f"Spectral clustering produced {len(clusters)} clusters.")
 
-    # Compute performance metrics (replace with your own function)
-    perf_series = compute_performance_metrics(returns_df, risk_free_rate)
+    # Compute performance metrics
+    objective_weights = get_objective_weights(objective)
+    perf_series = strategy_performance_metrics(
+        returns_df=returns_df,
+        risk_free_rate=risk_free_rate,
+        objective_weights=objective_weights,
+    )
 
     # For each cluster, select the top performer(s)
     selected_tickers: List[str] = []
