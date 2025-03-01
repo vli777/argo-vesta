@@ -152,7 +152,7 @@ def plot_cumulative_returns(
             )
 
             # Build annotation text: first line is Month Year, second line CR, third line the change.
-            annotation_text = f"{tick_str}<br>{cr:.2%}{change_line}"
+            annotation_text = f"{tick_str}<br>CR {cr:.2%}{change_line}"
             fig.add_annotation(
                 x=tick,
                 y=cr,
