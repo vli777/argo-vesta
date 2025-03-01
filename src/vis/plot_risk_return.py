@@ -31,6 +31,7 @@ def plot_risk_return_contributions(
     the original return and risk contributions (in percentage format), and the computed Sharpe ratio.
     """
     text_color = get_text_color(plot_bgcolor)
+    subtext_color = "#a3a3a3"
     min_length = min(len(symbols), len(return_contributions), len(risk_contributions))
     symbols = symbols[:min_length]
     return_contributions = return_contributions[:min_length]
@@ -48,9 +49,9 @@ def plot_risk_return_contributions(
         out=np.zeros_like(return_orig),
         where=risk_for_sharpe != 0,
     )
-    
+
     y_scatter = return_orig
-    x_scatter = risk_orig 
+    x_scatter = risk_orig
 
     # Create subplots:
     # - Top row: two pie charts (domain type) for returns and risk contributions.
@@ -74,9 +75,12 @@ def plot_risk_return_contributions(
         go.Pie(
             labels=symbols,
             values=return_orig,
-            hoverinfo="label+percent+value",
+            hoverinfo="label+percent",
             textinfo="label+percent",
-            showlegend=False,
+            hovertemplate="%{label}<br>Returns contribution: %{percent}",
+            showlegend=False,  # No legend for pie chart
+            name="",
+            textfont=dict(size=10, color=text_color),
         ),
         row=1,
         col=1,
@@ -87,9 +91,12 @@ def plot_risk_return_contributions(
         go.Pie(
             labels=symbols,
             values=risk_orig,
-            hoverinfo="label+percent+value",
+            hoverinfo="label+percent",
             textinfo="label+percent",
-            showlegend=False,
+            hovertemplate="%{label}<br>Risk contribution: %{percent}",
+            showlegend=False,  # No legend for pie chart
+            name="",
+            textfont=dict(size=10, color=text_color),
         ),
         row=1,
         col=2,
@@ -108,6 +115,7 @@ def plot_risk_return_contributions(
                     color=color_map.get(symbol, "gray"), size=10, line=dict(width=0)
                 ),
                 name=symbol,
+                textfont=dict(color=text_color),
                 hovertemplate=(
                     f"<b>{symbol}</b><br>"
                     f"Return Contribution: {return_orig[i]:.2f}%<br>"
@@ -119,13 +127,17 @@ def plot_risk_return_contributions(
             col=1,
         )
 
-    # Determine axis limits for the scatter plot.
+    # Determine axis limits for the scatter plot directly with decimal values.
     x_min, x_max = min(x_scatter), max(x_scatter)
     y_min, y_max = min(y_scatter), max(y_scatter)
+
+    # Calculate ranges and padding in decimal form.
     x_range = x_max - x_min
     y_range = y_max - y_min
-    x_padding = 0.1 * x_range if x_range != 0 else 1
-    y_padding = 0.1 * y_range if y_range != 0 else 1
+    x_padding = 0.1 * x_range if x_range != 0 else 0.01
+    y_padding = 0.1 * y_range if y_range != 0 else 0.01
+
+    # Adjusted axis limits with padding.
     x_low_adj = x_min - x_padding
     x_high_adj = x_max + x_padding
     y_low_adj = y_min - y_padding
@@ -133,15 +145,17 @@ def plot_risk_return_contributions(
 
     # Update scatter plot axes formatting.
     fig.update_xaxes(
-        title_text="Risk Contribution (%)",
-        tickformat=".0f",
+        title_text="Risk Contribution",
+        tickformat=".2f",  # Show two decimal places for precision
+        tickfont=dict(color=text_color),
         range=[x_low_adj, x_high_adj],
         row=2,
         col=1,
     )
     fig.update_yaxes(
-        title_text="Return Contribution (%)",
-        tickformat=".0f",
+        title_text="Returns Contribution",
+        tickformat=".2f",  # Show two decimal places for precision
+        tickfont=dict(color=text_color),
         range=[y_low_adj, y_high_adj],
         row=2,
         col=1,
@@ -160,6 +174,37 @@ def plot_risk_return_contributions(
             y=0.98,
             xanchor="left",
         ),
+        annotations=[
+            dict(
+                text="Returns Contribution",
+                showarrow=False,
+                font=dict(color=subtext_color),
+            ),
+            dict(
+                text="Risk Contribution",
+                showarrow=False,
+                font=dict(color=subtext_color),
+            ),
+            dict(
+                text="Risk vs. Return Contribution",
+                showarrow=False,
+                font=dict(color=subtext_color),
+            ),
+        ],
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=True,
+            tickfont=dict(color=subtext_color),
+            title_font=dict(color=subtext_color),
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            tickfont=dict(color=subtext_color),
+            title_font=dict(color=subtext_color),
+        ),
+        legend=dict(font=dict(color=text_color)),  # Ensure legend color matches theme
         paper_bgcolor=paper_bgcolor,
         plot_bgcolor=plot_bgcolor,
         showlegend=True,

@@ -16,14 +16,14 @@ def plot_daily_returns(
     color_map: Dict[str, str],
     config: Config,
     paper_bgcolor: str,
-    plot_bgcolor: str,
+    plot_bgcolor: str,    
 ) -> None:
     if not config.plot_daily_returns:
         return
 
     # Determine text color based on the plot background color.
     text_color = get_text_color(plot_bgcolor)
-
+    subtext_color = "#a3a3a3"
     fig = go.Figure()
     all_dates = daily_returns.index
     daily_returns = daily_returns.reindex(index=all_dates, fill_value=np.nan)
@@ -77,7 +77,7 @@ def plot_daily_returns(
         )
 
     fig.update_layout(
-         title=dict(
+        title=dict(
             text="Daily Returns",
             font=dict(
                 family="Roboto, sans-serif",
@@ -89,8 +89,20 @@ def plot_daily_returns(
             y=0.98,
             xanchor="left",
         ),
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=True),
-        yaxis=dict(showgrid=False, zeroline=False),
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=True,
+            tickfont=dict(color=subtext_color),
+        ),
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            tickfont=dict(color=subtext_color),
+        ),
+        legend=dict(
+            font=dict(color=text_color)
+        ),  # Ensure legend color matches theme
         paper_bgcolor=paper_bgcolor,
         plot_bgcolor=plot_bgcolor,
     )

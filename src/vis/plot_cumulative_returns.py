@@ -16,24 +16,21 @@ def plot_cumulative_returns(
     color_map: Dict[str, str],
     config,
     paper_bgcolor: str,
-    plot_bgcolor: str,
+    plot_bgcolor: str,    
 ) -> None:
     if not config.plot_cumulative_returns:
         return
 
     # Determine default text color and annotation circle color based on the plot background.
-    default_text_color = get_text_color(plot_bgcolor)
-    annotation_circle_color = (
-        default_text_color  # Ensure annotation circle color matches text color
-    )
-
+    text_color = get_text_color(plot_bgcolor)
+    subtext_color = "#a3a3a3"
     # Hover labels: translucent background remains as before.
     hover_bgcolor = (
-        "rgba(0,0,0,0.7)" if default_text_color == "white" else "rgba(255,255,255,0.7)"
+        "rgba(0,0,0,0.7)" if text_color == "#f4f4f4" else "rgba(255,255,255,0.7)"
     )
     # Annotations: no background (transparent) and no border.
     annotation_bgcolor = "rgba(0,0,0,0)"
-    annotation_text_color = default_text_color
+    annotation_text_color = text_color
 
     fig = go.Figure()
     all_dates = cumulative_returns.index
@@ -51,8 +48,7 @@ def plot_cumulative_returns(
         col_data = cumulative_returns[col]
         delta = col_data.diff().fillna(0)
         delta_color = [
-            buy_color if d > 0 else (sell_color if d < 0 else default_text_color)
-            for d in delta
+            buy_color if d > 0 else (sell_color if d < 0 else text_color) for d in delta
         ]
         customdata = np.column_stack([delta.values, delta_color])
         line_width = 6 if col == "SIM_PORT" else 1
@@ -75,7 +71,7 @@ def plot_cumulative_returns(
                     "<extra></extra>"
                 ),
                 hoverlabel=dict(
-                    font=dict(size=12, color=default_text_color), bgcolor=hover_bgcolor
+                    font=dict(size=12, color=text_color), bgcolor=hover_bgcolor
                 ),
                 opacity=opacity,
             )
@@ -142,7 +138,7 @@ def plot_cumulative_returns(
                 triangle_color = sell_color
             else:
                 triangle_str = ""
-                triangle_color = default_text_color
+                triangle_color = text_color
             change_line = f"<br><span style='color:{triangle_color};'>{triangle_str} {change:+.2%}</span>"
             prev_cr = cr
 
@@ -188,13 +184,13 @@ def plot_cumulative_returns(
                     size=circle_radius,
                     color="rgba(0,0,0,0)",  # transparent fill ensures only the outline is visible
                     line=dict(
-                        width=2, color=annotation_text_color  # outline matches annotation text color
+                        width=2,
+                        color=annotation_text_color,  # outline matches annotation text color
                     ),
                 ),
                 showlegend=False,
             )
         )
-
 
     # Set initial zoom to focus on SIM_PORT y-axis but include the full x-axis.
     if "SIM_PORT" in cumulative_returns.columns:
@@ -205,10 +201,10 @@ def plot_cumulative_returns(
         fig.update_yaxes(
             range=[y_min - y_margin, y_max + y_margin],
             showticklabels=False,
-            color=default_text_color,
-        )  # Hide y-axis labels, ensure correct color
+            color=text_color,
+        )  
         fig.update_xaxes(
-            range=[all_dates.min(), all_dates.max()], color=default_text_color
+            range=[all_dates.min(), all_dates.max()], color=text_color
         )  # Ensure x-axis labels match theme
 
     # Update layout for the title font, aligned left
@@ -219,18 +215,22 @@ def plot_cumulative_returns(
                 family="Roboto, sans-serif",
                 size=32,
                 weight="bold",
-                color=default_text_color,
+                color=text_color,
             ),  # Title color
             x=0.02,  # Left padding
             y=0.98,
             xanchor="left",
         ),
-        legend=dict(
-            font=dict(color=default_text_color)
-        ),  # Ensure legend color matches theme
-        hoverlabel=dict(
-            font=dict(size=12, color=default_text_color), bgcolor=hover_bgcolor
+        xaxis=dict(
+            tickfont=dict(color=subtext_color),
         ),
+        yaxis=dict(
+            tickfont=dict(color=subtext_color),
+        ),
+        legend=dict(
+            font=dict(color=text_color)
+        ),  # Ensure legend color matches theme
+        hoverlabel=dict(font=dict(size=12, color=text_color), bgcolor=hover_bgcolor),
     )
 
     fig.show()
