@@ -16,7 +16,7 @@ def plot_cumulative_returns(
     color_map: Dict[str, str],
     config,
     paper_bgcolor: str,
-    plot_bgcolor: str,    
+    plot_bgcolor: str,
 ) -> None:
     if not config.plot_cumulative_returns:
         return
@@ -202,7 +202,7 @@ def plot_cumulative_returns(
             range=[y_min - y_margin, y_max + y_margin],
             showticklabels=False,
             color=text_color,
-        )  
+        )
         fig.update_xaxes(
             range=[all_dates.min(), all_dates.max()], color=text_color
         )  # Ensure x-axis labels match theme
@@ -227,9 +227,7 @@ def plot_cumulative_returns(
         yaxis=dict(
             tickfont=dict(color=subtext_color),
         ),
-        legend=dict(
-            font=dict(color=text_color)
-        ),  # Ensure legend color matches theme
+        legend=dict(font=dict(color=text_color)),  # Ensure legend color matches theme
         hoverlabel=dict(font=dict(size=12, color=text_color), bgcolor=hover_bgcolor),
     )
 

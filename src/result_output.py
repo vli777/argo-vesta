@@ -157,9 +157,9 @@ def output(
     # Print portfolio allocation in tab-separated format
     sorted_weights = sorted(clean_weights.items(), key=lambda kv: kv[1], reverse=True)
     print("Asset\tWeight\tExpected Daily Return")
-    for asset, weight in sorted_weights:        
+    for asset, weight in sorted_weights:
         q1 = boxplot_stats[asset]["q1"] * 100
-        q3 = boxplot_stats[asset]["q3"] * 100           
+        q3 = boxplot_stats[asset]["q3"] * 100
         print(f"{asset}\t{weight * 100:.2f}%\t{q1:.2f} to {q3:.2f}%")
 
     return all_daily_returns, all_cumulative_returns, boxplot_stats

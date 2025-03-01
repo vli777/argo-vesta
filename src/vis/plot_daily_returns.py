@@ -16,7 +16,7 @@ def plot_daily_returns(
     color_map: Dict[str, str],
     config: Config,
     paper_bgcolor: str,
-    plot_bgcolor: str,    
+    plot_bgcolor: str,
 ) -> None:
     if not config.plot_daily_returns:
         return
@@ -100,9 +100,7 @@ def plot_daily_returns(
             zeroline=False,
             tickfont=dict(color=subtext_color),
         ),
-        legend=dict(
-            font=dict(color=text_color)
-        ),  # Ensure legend color matches theme
+        legend=dict(font=dict(color=text_color)),  # Ensure legend color matches theme
         paper_bgcolor=paper_bgcolor,
         plot_bgcolor=plot_bgcolor,
     )
