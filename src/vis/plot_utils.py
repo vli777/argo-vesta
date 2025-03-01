@@ -133,11 +133,11 @@ def update_plot_layout(
 def get_text_color(bgcolor: str) -> str:
     """
     Determines a text color based on the background color.
-    Returns white if the background is dark, otherwise black.
+    Returns paper white if the background is dark, otherwise dark gray.
     """
     hex_color = bgcolor.lstrip("#")
     if len(hex_color) == 3:
         hex_color = "".join([c * 2 for c in hex_color])
     r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
     brightness = (r * 299 + g * 587 + b * 114) / 1000
-    return "white" if brightness < 128 else "black"
+    return "#f4f4f4" if brightness < 128 else "#1e1e1e"

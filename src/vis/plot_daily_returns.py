@@ -77,7 +77,18 @@ def plot_daily_returns(
         )
 
     fig.update_layout(
-        title="Daily Returns",
+         title=dict(
+            text="Daily Returns",
+            font=dict(
+                family="Roboto, sans-serif",
+                size=32,
+                weight="bold",
+                color=text_color,
+            ),  # Title color
+            x=0.02,  # Left padding
+            y=0.98,
+            xanchor="left",
+        ),
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=True),
         yaxis=dict(showgrid=False, zeroline=False),
         paper_bgcolor=paper_bgcolor,

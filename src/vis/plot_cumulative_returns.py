@@ -55,7 +55,7 @@ def plot_cumulative_returns(
             for d in delta
         ]
         customdata = np.column_stack([delta.values, delta_color])
-        line_width = 6 if col == "SIM_PORT" else 2
+        line_width = 6 if col == "SIM_PORT" else 1
         default_color = "gold" if col == "SIM_PORT" else "gray"
         trace_color = color_map.get(col, default_color)
         opacity = 1.0 if col == "SIM_PORT" else 0.5
@@ -184,16 +184,17 @@ def plot_cumulative_returns(
                 name="",
                 hoverinfo="skip",  # do not show hover for marker circles
                 marker=dict(
-                    symbol="circle-open",
+                    symbol="circle",  # use a filled circle with transparent fill
                     size=circle_radius,
-                    color="rgba(0,0,0,0)",  # force transparent fill to avoid default color assignment
+                    color="rgba(0,0,0,0)",  # transparent fill ensures only the outline is visible
                     line=dict(
-                        width=2, color=annotation_text_color  # use annotation text color for the circle outline
+                        width=2, color=annotation_text_color  # outline matches annotation text color
                     ),
                 ),
                 showlegend=False,
             )
         )
+
 
     # Set initial zoom to focus on SIM_PORT y-axis but include the full x-axis.
     if "SIM_PORT" in cumulative_returns.columns:

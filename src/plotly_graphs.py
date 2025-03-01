@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
@@ -18,8 +18,7 @@ def plot_graphs(
     risk_contributions: np.ndarray,
     config,
     symbols: List[str],
-    paper_bgcolor: str = "#f4f4f4",
-    plot_bgcolor: str = "#f4f4f4",  # "#202346",
+    theme: str = "light",
     palette: str = "default",
 ) -> None:
     """
@@ -37,14 +36,25 @@ def plot_graphs(
         Configuration object with boolean attributes:
             - plot_daily_returns (bool)
             - plot_cumulative_returns (bool)
-            - sort_by_weights (bool)
+            - plot_contribution (bool)
     symbols : List[str]
         List of symbols corresponding to columns in `cumulative_returns`.
-    paper_bgcolor : str, optional
-        Background color for the entire figure (paper)
-    plot_bgcolor : str, optional
-        Background color for the plotting area
+    theme : str
+        The theme for the plot. Options: "light", "dark", "nyan".
+    palette : str, optional
+        Color palette for the plot.
     """
+    # Define theme-based background colors
+    theme_colors = {
+        "light": "#f4f4f4",
+        "dark": "#1e1e1e",
+        "nyan": "#202346",
+    }
+
+    # Set colors based on theme
+    paper_bgcolor = theme_colors.get(theme, "#f4f4f4")
+    plot_bgcolor = theme_colors.get(theme, "#f4f4f4")
+
     color_map, sorted_symbols = generate_color_map(
         symbols, cumulative_returns, palette=palette
     )
@@ -56,11 +66,7 @@ def plot_graphs(
 
     if config.plot_cumulative_returns:
         plot_cumulative_returns(
-            cumulative_returns,
-            color_map,
-            config,
-            paper_bgcolor="#1e1e1e",
-            plot_bgcolor="#1e1e1e",
+            cumulative_returns, color_map, config, paper_bgcolor, plot_bgcolor
         )
 
     if config.plot_contribution:
@@ -68,4 +74,7 @@ def plot_graphs(
             symbols=symbols,
             return_contributions=return_contributions,
             risk_contributions=risk_contributions,
+            paper_bgcolor=paper_bgcolor,
+            plot_bgcolor=plot_bgcolor,
+            color_map=color_map,
         )
