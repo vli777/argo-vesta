@@ -1,4 +1,4 @@
-# PyPort
+# ArgoVesta
 Modern Portfolio Optimization 
 
 # In Progress 
