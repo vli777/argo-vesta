@@ -1,10 +1,9 @@
 from typing import Dict, List, Union
 import numpy as np
 import pandas as pd
-import plotly.express as px
-from sklearn.manifold import TSNE
 
 from models.optimizer_utils import strategy_performance_metrics, get_objective_weights
+from correlation.plot_clusters import visualize_clusters_tsne, visualize_clusters_umap
 from utils.logger import logger
 
 
@@ -83,49 +82,17 @@ def filter_correlated_groups_hdbscan(
         labels_in_order = np.array(
             [asset_cluster_map[ticker] for ticker in returns_df.columns]
         )
-        visualize_clusters_tsne(returns_df=returns_df, cluster_labels=labels_in_order)
+
+        visualize_clusters_umap(
+            returns_df=returns_df,
+            cluster_labels=labels_in_order,
+            n_neighbors=50,
+            min_dist=0.5,
+        )
+     
+        # visualize_clusters_tsne(
+        #     returns_df=returns_df,
+        #     cluster_labels=labels_in_order,
+        # )
 
     return selected_tickers
-
-
-def visualize_clusters_tsne(
-    returns_df: pd.DataFrame,
-    cluster_labels,
-    perplexity: float = 30,
-    max_iter: int = 1000,
-):
-    """
-    Visualize asset clusters using t-SNE and Plotly.
-
-    Args:
-        returns_df (pd.DataFrame): DataFrame with dates as index and assets as columns.
-        cluster_labels (array-like): Cluster labels for each asset (in the same order as returns_df.columns).
-        perplexity (int): t-SNE perplexity parameter.
-        max_iter (int): Number of iterations for t-SNE.
-    """
-    # Transpose the DataFrame so that each asset is represented as a feature vector.
-    asset_data = returns_df.T
-
-    # Optionally, you can standardize the data here if needed.
-    tsne = TSNE(
-        perplexity=min(perplexity, len(asset_data) - 1),
-        max_iter=max_iter,
-        random_state=42,
-    )
-    tsne_results = tsne.fit_transform(asset_data)
-
-    # Create a DataFrame for plotting.
-    tsne_df = pd.DataFrame(tsne_results, columns=["TSNE1", "TSNE2"])
-    tsne_df["Ticker"] = asset_data.index
-    tsne_df["Cluster"] = cluster_labels
-
-    # Create an interactive scatter plot.
-    fig = px.scatter(
-        tsne_df,
-        x="TSNE1",
-        y="TSNE2",
-        color="Cluster",
-        hover_data=["Ticker"],
-        title="t-SNE Visualization of Asset Clusters",
-    )
-    fig.show()

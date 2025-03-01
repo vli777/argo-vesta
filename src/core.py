@@ -572,8 +572,11 @@ def run_pipeline(
         plot_graphs(
             daily_returns=final_result_dict["daily_returns"],
             cumulative_returns=final_result_dict["cumulative_returns"],
+            return_contributions=final_result_dict["return_contributions"],
+            risk_contributions=final_result_dict["risk_contributions"],
             config=config,
             symbols=final_result_dict["symbols"],
+            theme="light",
         )
 
     # Cleanup

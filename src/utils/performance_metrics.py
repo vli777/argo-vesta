@@ -346,21 +346,21 @@ def risk_return_contributions(
         cumulative_returns (np.ndarray): Array of cumulative returns for each stock.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray]: Normalized return and risk contributions as percentages.
+        Tuple[np.ndarray, np.ndarray]: Normalized return and risk contributions as decimals.
     """
     # Compute standard deviation for risk
     stock_risks = daily_returns.std(axis=0).values  # Std dev of each stock
 
     # Compute return contributions
     return_contributions = weights * cumulative_returns
-    return_contributions_pct = (
-        return_contributions / np.sum(return_contributions) * 100
+    return_contributions_decimal = return_contributions / np.sum(
+        return_contributions
     )  # Normalize
 
     # Compute risk contributions
     risk_contributions = weights * stock_risks
-    risk_contributions_pct = (
-        risk_contributions / np.sum(risk_contributions) * 100
+    risk_contributions_decimal = risk_contributions / np.sum(
+        risk_contributions
     )  # Normalize
 
-    return return_contributions_pct, risk_contributions_pct
+    return return_contributions_decimal, risk_contributions_decimal
