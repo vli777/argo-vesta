@@ -1,16 +1,23 @@
 # ArgoVesta
 Modern Portfolio Optimization 
 
-# In Progress 
+# Upcoming
+- [ ] DuckDB migration for faster data loading
+- [ ] Bayesian changepoint detection for regime switching
+- [ ] Clustering fine-tuning
+- [ ] Volatility Strategies
+- [ ] Forecasting models
+
+# March 2025
 - [x] OU mean reversion and multi-asset statistical arbitrage
 ![image](https://github.com/user-attachments/assets/e838a18d-7173-4102-91eb-40da5c8a96dd)
 ![image](https://github.com/user-attachments/assets/c9b31d53-ef5e-46c9-a39f-e04aea618fe8)
 - [x] Return-risk-sharpe profile of portfolio assets to see how much they contribute
-![return risk](https://github.com/user-attachments/assets/1baeaec5-694d-43df-8b39-5c709de583a4)
+![contributions](https://github.com/user-attachments/assets/8156b285-b097-4033-b50f-11957c1db483)
 - [x] New unified strategy optimizers with vol and CVaR constraints
 - [x] Global optimization with dual annealing and stochastic diffusion
 ![optimization contour plot](https://github.com/user-attachments/assets/25f46c97-1118-4e92-a635-6b62215eba78)
-- [ ] DuckDB migration for faster data loading
+- [x] Visualization styling
 
 # February 2025 
 - Updated features with more modern techniques: (VAE for anomaly detection would be considered more SOTA, but due to our data sample size and the marginal benefit vs computational resources required, isolation forest was selected.
@@ -33,8 +40,6 @@ Modern Portfolio Optimization
 - Integrated Optuna to dynamically find optimal thresholds for maximizing performance metrics and returns 
 
 - Daily and Cumulative Returns Statistics
-- ![image](https://github.com/user-attachments/assets/ab6fd50c-f9ae-49ff-a12c-b1526df83239)
-
 - Anomaly Detection for Automatic Filtering
 - Hierarchical Clustering for De-correlation
 - Dynamic Z-score Thresholds for Mean Reversion
