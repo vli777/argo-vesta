@@ -576,6 +576,7 @@ def run_pipeline(
             risk_contributions=final_result_dict["risk_contributions"],
             config=config,
             symbols=final_result_dict["symbols"],
+            theme="light",
         )
 
     # Cleanup

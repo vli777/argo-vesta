@@ -124,7 +124,8 @@ def iterative_pipeline_runner(
             risk_contributions=final_result["risk_contributions"],
             config=config,
             symbols=final_result["symbols"],
-        )    
+            theme="light",
+        )
         plot_done = True
 
     return final_result

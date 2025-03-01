@@ -18,7 +18,7 @@ def plot_graphs(
     risk_contributions: np.ndarray,
     config,
     symbols: List[str],
-    theme: str = "dark",
+    theme: str = "light",
     palette: str = "default",
 ) -> None:
     """
