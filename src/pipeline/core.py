@@ -26,7 +26,6 @@ from utils.caching_utils import cleanup_cache
 from utils.date_utils import calculate_start_end_dates
 from utils.portfolio_utils import (
     normalize_weights,
-    stacked_output,
 )
 
 

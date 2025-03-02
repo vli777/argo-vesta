@@ -66,7 +66,7 @@ class Config:
 
         use_reversion = config_dict.get("use_reversion", False)
         reversion_type = (
-            config_dict.get("reversion_type", "ou") if use_reversion else None
+            config_dict.get("reversion_type", "z") if use_reversion else None
         )
 
         return cls(
