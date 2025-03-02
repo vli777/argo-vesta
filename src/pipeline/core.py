@@ -19,7 +19,7 @@ from apply_reversion import (
 from correlation.correlation_utils import compute_lw_covariance
 from risk_constraints import apply_risk_constraints
 from models.optimize_portfolio import estimated_portfolio_volatility
-from pipeline.data_processing import load_data, load_symbols, perform_post_processing, preprocess_data
+from pipeline.data_processing import calculate_returns, load_data, load_symbols, perform_post_processing, preprocess_data
 from utils.logger import logger
 from utils.performance_metrics import conditional_var
 from utils.caching_utils import cleanup_cache
@@ -74,10 +74,13 @@ def run_pipeline(
     # Ensure we use the **largest valid date range** for returns_df
     all_dates = df_all.index  # Keep full range before filtering
 
-    # apply all pre-optimization filters
-    returns_df, asset_cluster_map = preprocess_data(df=df_all, config=config)
+    # Calculate log returns on multi index df
+    returns_df = calculate_returns(df_all)
+    
+    # Apply optional preprocessing (anomaly and decorrelation filters)
+    filtered_returns_df, asset_cluster_map = preprocess_data(returns_df, config)
 
-    valid_symbols = list(returns_df.columns)
+    valid_symbols = list(filtered_returns_df.columns)
     if not valid_symbols:
         logger.warning("No valid symbols remain after filtering. Aborting pipeline.")
         return None  # Or raise an exception if this is an unrecoverable state
