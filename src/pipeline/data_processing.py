@@ -94,25 +94,27 @@ def calculate_returns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def preprocess_data(
-    df: pd.DataFrame, config: Config
-) -> Tuple[pd.DataFrame, dict[str, Any]]:
+    returns_df: pd.DataFrame, 
+    config: Config
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Preprocess the input DataFrame to calculate returns and optionally remove anomalous stocks.
+    Preprocess the returns DataFrame by applying optional anomaly and decorrelation filters.
 
     Args:
-        df (pd.DataFrame): Multiindex DataFrame with adjusted close prices.
-        config: Configuration object with settings like anomaly detection threshold and plotting options.
+        returns_df (pd.DataFrame): DataFrame with daily returns for each stock.
+        config (Config): Configuration object with settings for filters and clustering.
 
     Returns:
-        pd.DataFrame: Processed DataFrame with daily returns, with optional anomaly filtering and decorrelation applied.
+        Tuple[pd.DataFrame, Dict[str, Any]]: Filtered DataFrame and asset cluster map.
     """
-    returns_df = calculate_returns(df)
-    # Create asset cluster map
+    # Create asset cluster map (independent of filtering)
     asset_cluster_map = get_cluster_labels(
         returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
     )
-    filtered_returns_df = returns_df  # Ensure it's always assigned
 
+    filtered_returns_df = returns_df
+
+    # Apply anomaly filter if configured
     if config.use_anomaly_filter:
         logger.debug("Applying anomaly filter.")
         valid_symbols = remove_anomalous_stocks(
@@ -122,7 +124,7 @@ def preprocess_data(
         )
         filtered_returns_df = returns_df[valid_symbols]
     else:
-        valid_symbols = returns_df.columns.tolist()  # Ensure it exists
+        valid_symbols = returns_df.columns.tolist()
 
     # Apply decorrelation filter if enabled
     if config.use_decorrelation:
@@ -135,9 +137,8 @@ def preprocess_data(
             symbol for symbol in valid_symbols if symbol in filtered_returns_df.columns
         ]
 
-    filtered_returns_df = filtered_returns_df[valid_symbols]  # Always valid
+    filtered_returns_df = filtered_returns_df[valid_symbols]
 
-    # Remove rows where all columns are NaN after all filtering steps
     return filtered_returns_df.dropna(how="all"), asset_cluster_map
 
 
