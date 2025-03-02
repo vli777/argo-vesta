@@ -162,7 +162,7 @@ def output(
         q1 = boxplot_stats[asset]["q1"] * 100
         q3 = boxplot_stats[asset]["q3"] * 100
         uw = boxplot_stats[asset]["upper_whisker"] * 100
-        print(f"{asset}\t{weight * 100:.2f}%\t{lw:.2f}%\t{q1:.2f}%\t{q3:.2f}%\t{uw:.2f}%")
+        print(f"{asset}\t{weight * 100:.2f}%\t{lw:.2f}\t{q1:.2f}\t{q3:.2f}\t{uw:.2f}")
 
     return all_daily_returns, all_cumulative_returns, boxplot_stats
 
