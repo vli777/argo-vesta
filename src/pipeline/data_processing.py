@@ -94,8 +94,7 @@ def calculate_returns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def preprocess_data(
-    returns_df: pd.DataFrame, 
-    config: Config
+    returns_df: pd.DataFrame, config: Config
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Preprocess the returns DataFrame by applying optional anomaly and decorrelation filters.
