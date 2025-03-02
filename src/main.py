@@ -1,7 +1,7 @@
 import sys
 from typing import List, Optional
 from config import Config
-from core import run_pipeline
+from pipeline.core import run_pipeline
 
 from plotly_graphs import plot_graphs
 from reversion.reversion_plots import (
