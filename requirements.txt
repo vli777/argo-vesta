@@ -8,6 +8,7 @@ attrs==25.1.0
 beautifulsoup4==4.13.3
 certifi==2025.1.31
 charset-normalizer==3.4.1
+click==8.1.8
 colorama==0.4.6
 colorlog==6.9.0
 concurrent-log-handler==0.9.25
@@ -23,6 +24,7 @@ frozendict==2.4.6
 frozenlist==1.5.0
 fsspec==2024.6.1
 greenlet==3.1.1
+h11==0.14.0
 hdbscan==0.8.40
 idna==3.10
 Jinja2==3.1.4
@@ -90,5 +92,6 @@ typing_extensions==4.12.2
 tzdata==2025.1
 umap-learn==0.5.7
 urllib3==2.3.0
+uvicorn==0.34.0
 yarl==1.18.3
 yfinance==0.2.54
