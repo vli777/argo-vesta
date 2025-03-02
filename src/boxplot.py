@@ -37,8 +37,10 @@ def generate_boxplot_data(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
             "q1": q1,
             "median": median,
             "q3": q3,
-            "lower_whisker": lower_whisker,
-            "upper_whisker": upper_whisker,
+            "lf": lower_fence,
+            "uf": upper_fence,
+            "min": lower_whisker,
+            "max": upper_whisker,
             "outliers": outliers,
         }
 
