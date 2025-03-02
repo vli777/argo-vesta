@@ -3,21 +3,21 @@ import numpy as np
 import pandas as pd
 
 
-def generate_boxplot_data(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
+def generate_boxplot_data(returns_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     """
     Compute boxplot statistics (Q1, median, Q3, whiskers, and outliers)
     for each column in a DataFrame.
 
     Args:
-        df (pd.DataFrame): DataFrame where each column represents a stock's daily returns.
+        returns_df (pd.DataFrame): DataFrame where each column represents a stock's daily returns.
 
     Returns:
         Dict[str, Dict[str, Any]]: Dictionary where each stock symbol maps to its boxplot statistics.
     """
     boxplot_stats = {}
 
-    for col in df.columns:
-        data = df[col].dropna().values  # Drop NaNs for accurate calculations
+    for col in returns_df.columns:
+        data = returns_df[col].dropna().values  # Drop NaNs for accurate calculations
         if len(data) == 0:
             continue  # Skip empty columns
 
