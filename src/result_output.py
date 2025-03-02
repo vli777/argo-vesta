@@ -156,11 +156,13 @@ def output(
 
     # Print portfolio allocation in tab-separated format
     sorted_weights = sorted(clean_weights.items(), key=lambda kv: kv[1], reverse=True)
-    print("Asset\tWeight\tExpected Daily Return")
+    print("Symbol\tWeight\tLW\tQ1\tQ3\tUW")
     for asset, weight in sorted_weights:
+        lw = boxplot_stats[asset]["lower_whisker"] * 100
         q1 = boxplot_stats[asset]["q1"] * 100
         q3 = boxplot_stats[asset]["q3"] * 100
-        print(f"{asset}\t{weight * 100:.2f}%\t{q1:.2f} to {q3:.2f}%")
+        uw = boxplot_stats[asset]["upper_whisker"] * 100
+        print(f"{asset}\t{weight * 100:.2f}%\t{lw:.2f}%\t{q1:.2f}%\t{q3:.2f}%\t{uw:.2f}%")
 
     return all_daily_returns, all_cumulative_returns, boxplot_stats
 
