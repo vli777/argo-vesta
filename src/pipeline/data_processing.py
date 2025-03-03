@@ -114,19 +114,19 @@ def preprocess_data(
     filtered_returns_df = returns_df
 
     # Apply anomaly filter if configured
-    if config.use_anomaly_filter:
+    if config.options["use_anomaly_filter"]:
         logger.debug("Applying anomaly filter.")
         valid_symbols = remove_anomalous_stocks(
             returns_df=returns_df,
             reoptimize=False,
-            plot=config.plot_anomalies,
+            plot=config.options["plot_anomalies"],
         )
         filtered_returns_df = returns_df[valid_symbols]
     else:
         valid_symbols = returns_df.columns.tolist()
 
     # Apply decorrelation filter if enabled
-    if config.use_decorrelation:
+    if config.options["use_decorrelation"]:
         logger.info("Filtering correlated assets...")
         valid_symbols = filter_correlated_assets(
             filtered_returns_df, config, asset_cluster_map
@@ -152,15 +152,15 @@ def filter_correlated_assets(
     """
     original_symbols = list(returns_df.columns)  # Preserve original symbols
     trading_days_per_year = 252
-    risk_free_rate_log_daily = np.log(1 + config.risk_free_rate) / trading_days_per_year
+    risk_free_rate_log_daily = np.log(1 + config.options["risk_free_rate"]) / trading_days_per_year
 
     try:
         decorrelated_tickers = filter_correlated_groups_hdbscan(
             returns_df=returns_df,
             asset_cluster_map=asset_cluster_map,
             risk_free_rate=risk_free_rate_log_daily,
-            plot=config.plot_clustering,
-            objective=config.optimization_objective,
+            plot=config.options["plot_clustering"],
+            objective=config.options["optimization_objective"],
         )
 
         valid_symbols = [
@@ -216,7 +216,7 @@ def perform_post_processing(
     )
 
     # Normalize weights. (normalize_weights is used elsewhere so we leave it unchanged)
-    normalized_weights = normalize_weights(sorted_weights, config.min_weight)
+    normalized_weights = normalize_weights(sorted_weights, config.options["min_weight"])
     # logger.debug(f"\nNormalized avg weights: {normalized_weights}")
 
     # Ensure output is a dictionary.

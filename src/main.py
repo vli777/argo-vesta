@@ -122,7 +122,9 @@ def pipeline_runner(
             cumulative_returns=final_result["cumulative_returns"],
             return_contributions=final_result["return_contributions"],
             risk_contributions=final_result["risk_contributions"],
-            config=config,
+            plot_contribution=config.options["plot_contribution"],
+            plot_cumulative_returns=config.options["plot_cumulative_returns"],
+            plot_daily_returns=config.options["plot_daily_returns"],
             symbols=final_result["symbols"],
             theme="light",
         )

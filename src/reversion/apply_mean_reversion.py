@@ -42,7 +42,7 @@ def apply_mean_reversion(
     """
     # 1. Load or initialize the cache
     reversion_cache_file = (
-        f"{cache_dir}/reversion_cache_{config.optimization_objective}.pkl"
+        f"{cache_dir}/reversion_cache_{config.options["optimization_objective"]}.pkl"
     )
     reversion_cache = load_parameters_from_pickle(reversion_cache_file)
     if not isinstance(reversion_cache, dict):
@@ -59,7 +59,7 @@ def apply_mean_reversion(
     ]
 
     # 4. Objective weights (e.g., sharpe, cumulative return, etc.)
-    objective_weights = get_objective_weights(objective=config.optimization_objective)
+    objective_weights = get_objective_weights(objective=config.options["optimization_objective"])
 
     # 5. Optimize (if stale or missing)
     if cache_is_stale or missing_tickers:
@@ -107,7 +107,7 @@ def apply_mean_reversion(
         ticker_params=ticker_params,
     )
 
-    if config.plot_reversion:
+    if config.options["plot_reversion"]:
         plot_reversion_signals(composite_signals)
     # logger.info(f"composite_signals: {composite_signals}")
     # 8. Propagate signals by similarity (if desired)
@@ -141,7 +141,7 @@ def apply_mean_reversion(
         baseline_allocation=baseline_allocation,
         composite_signals=updated_composite_signals,
         alpha=adaptive_alpha,
-        allow_short=config.allow_short,
+        allow_short=config.options["allow_short"],
     )
 
     return final_allocation

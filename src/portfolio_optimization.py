@@ -60,7 +60,7 @@ def run_optimization_and_save(
         cache_key = make_cache_key(
             model=model,
             years=years,
-            objective=config.optimization_objective,
+            objective=config.options["optimization_objective"],
             symbols=symbols,
         )
 
@@ -68,7 +68,7 @@ def run_optimization_and_save(
         # cached = load_model_results_from_cache(cache_key)
         # if cached is not None:
         #     print(f"Using cached results for {model} with {years} years.")
-        #     normalized_weights = normalize_weights(cached, config.min_weight)
+        #     normalized_weights = normalize_weights(cached, config.options["min_weight"])
         #     final_weights = normalized_weights
         #     stack[model + str(years)] = normalized_weights.to_dict()
         #     save_model_results_to_cache(cache_key, final_weights.to_dict())
@@ -103,20 +103,20 @@ def run_optimization_and_save(
         mu_annual = mu_annual.loc[valid_assets]
         mu_annual = mu_annual.reindex(valid_assets)
 
-        min_weight = config.min_weight
-        max_weight = config.max_weight
-        optimization_objective = config.optimization_objective
-        allow_short = config.allow_short
-        max_gross_exposure = config.max_gross_exposure
-        risk_free_rate = config.risk_free_rate
+        min_weight = config.options["min_weight"]
+        max_weight = config.options["max_weight"]
+        optimization_objective = config.options["optimization_objective"]
+        allow_short = config.options["allow_short"]
+        max_gross_exposure = config.options["max_gross_exposure"]
+        risk_free_rate = config.options["risk_free_rate"]
         risk_free_rate_log_daily = np.log(1 + risk_free_rate) / trading_days_per_year
         use_annealing = (
-            config.use_global_optimization
-            and config.global_optimization_type == "annealing"
+            config.options["use_global_optimization"]
+            and config.options["global_optimization_type"] == "annealing"
         )
         use_diffusion = (
-            config.use_global_optimization
-            and config.global_optimization_type == "diffusion"
+            config.options["use_global_optimization"]
+            and config.options["global_optimization_type"] == "diffusion"
         )
 
         model_args = {
@@ -153,15 +153,15 @@ def run_optimization_and_save(
 
             portfolio_max_size = estimate_optimal_num_assets(
                 vol_limit=(
-                    config.portfolio_max_vol
-                    if config.portfolio_max_vol
+                    config.options["portfolio_max_vol"]
+                    if config.options["portfolio_max_vol"]
                     else current_vol
                 ),
-                portfolio_max_size=config.portfolio_max_size,
+                portfolio_max_size=config.options["portfolio_max_size"],
             ) or len(weights)
 
             weights = convert_weights_to_series(weights, index=mu_annual.index)
-            normalized_weights = normalize_weights(weights, config.min_weight)
+            normalized_weights = normalize_weights(weights, config.options["min_weight"])
             final_weights = limit_portfolio_size(
                 normalized_weights, portfolio_max_size, target_sum=1.0
             )

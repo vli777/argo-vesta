@@ -116,8 +116,8 @@ def run_pipeline(
     # Iterate through each time period and perform optimization
     for period in sorted_time_periods:
         # For non-longest periods, temporarily disable anomaly and clustering plots.
-        config.plot_anomalies if period == longest_period else False
-        config.plot_clustering if period == longest_period else False
+        config.options["plot_anomalies"] if period == longest_period else False
+        config.options["plot_clustering"] if period == longest_period else False
 
         start, end = calculate_start_end_dates(period)
         logger.debug(f"Processing period: {period} from {start} to {end}")
@@ -162,7 +162,7 @@ def run_pipeline(
             logger.info(f"Running optimization with {len(valid_symbols)} assets.")
 
         # For the longest period, enable plotting if configured.
-        plot_flag = config.plot_optimization and (period == longest_period)
+        plot_flag = config.options["plot_optimization"] and (period == longest_period)
 
         run_optimization_and_save(
             df=df_period,
@@ -188,7 +188,7 @@ def run_pipeline(
     if not normalized_avg_weights:
         return {}
 
-    if config.portfolio_max_vol is not None or config.portfolio_max_cvar is not None:
+    if config.options["portfolio_max_vol"] is not None or config.options["portfolio_max_cvar"] is not None:
         # Preprocess df_all to compute risk estimates for the merged portfolio.
         # This follows the original logic: flatten the MultiIndex and reindex by all_dates and valid_symbols.
         df_risk = df_all.loc[start_long:end_long].copy()
@@ -258,23 +258,23 @@ def run_pipeline(
         )
 
         # If portfolio_max_vol is not specified, set it to the current portfolio's volatility.
-        if config.portfolio_max_cvar is not None and config.portfolio_max_vol is None:
+        if config.options["portfolio_max_cvar"] is not None and config.options["portfolio_max_vol"] is None:
             logger.info(
                 f"portfolio_max_vol not specified with portfolio_max_cvar enabled; using current portfolio vol: {current_vol:.2f} and shorting enabled"
             )
-            config.portfolio_max_vol = current_vol
-            config.allow_short = True
+            config.options["portfolio_max_vol"] = current_vol
+            config.options["allow_short"] = True
 
         # Final pass: apply risk constraints to the merged portfolio
         risk_adjusted_weights = (
             apply_risk_constraints(normalized_avg_weights, risk_estimates, config)
-            if (config.portfolio_max_cvar or config.portfolio_max_vol)
+            if (config.options["portfolio_max_cvar"] or config.options["portfolio_max_vol"])
             else normalized_avg_weights
         )
 
         final_weights = normalize_weights(
             weights=risk_adjusted_weights,
-            min_weight=config.min_weight,
+            min_weight=config.options["min_weight"],
         )
     else:
         final_weights = normalized_avg_weights
@@ -289,10 +289,10 @@ def run_pipeline(
     # Convert dict to Pandas Series
     final_weights_series = pd.Series(final_weights)
     if not (final_weights_series.equals(normalized_avg_weights)):
-        if config.portfolio_max_vol is not None:
-            combined_models += f" + σ <= {config.portfolio_max_vol:.2f}"
-        if config.portfolio_max_cvar is not None:
-            combined_models += f" + CVaR <= {config.portfolio_max_cvar:.2f}"
+        if config.options["portfolio_max_vol"] is not None:
+            combined_models += f" + σ <= {config.options["portfolio_max_vol"]:.2f}"
+        if config.options["portfolio_max_cvar"] is not None:
+            combined_models += f" + CVaR <= {config.options["portfolio_max_cvar"]:.2f}"
 
     # Sort symbols and filter DataFrame accordingly
     sorted_symbols = sorted(final_weights.keys())
@@ -337,8 +337,8 @@ def run_pipeline(
     )
 
     # --- Mean Reversion Branches ---
-    if config.use_reversion:
-        if config.reversion_type == "z":
+    if config.options["use_reversion"]:
+        if config.options["reversion_type"] == "z":
             final_result_dict = apply_z_reversion(
                 dfs=dfs,
                 normalized_avg_weights=final_weights,
@@ -359,7 +359,7 @@ def run_pipeline(
                 config=config,
                 # asset_cluster_map=asset_cluster_map,
                 returns_df=returns_df,
-                allow_short=config.allow_short,
+                allow_short=config.options["allow_short"],
             )
 
     # Optional plotting (only on local runs)
@@ -369,7 +369,9 @@ def run_pipeline(
             cumulative_returns=final_result_dict["cumulative_returns"],
             return_contributions=final_result_dict["return_contributions"],
             risk_contributions=final_result_dict["risk_contributions"],
-            config=config,
+            plot_contribution=config.options["plot_contribution"],
+            plot_cumulative_returns=config.options["plot_cumulative_returns"],
+            plot_daily_returns=config.options["plot_daily_returns"],
             symbols=final_result_dict["symbols"],
             theme="light",
         )
