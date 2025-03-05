@@ -1,32 +1,102 @@
-import math
+from pathlib import Path
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 from sklearn.cluster import SpectralClustering
-import logging
-from typing import List, Optional
+from scipy.sparse.csgraph import laplacian
 
-from correlation.plot_clusters import visualize_clusters_tsne
+from correlation.plot_clusters import visualize_clusters_tsne, visualize_clusters_umap
 from models.optimizer_utils import get_objective_weights, strategy_performance_metrics
+from correlation.specrtal_optimize import (
+    compute_affinity_matrix_rbf,
+    run_spectral_affinity_study,
+)
+from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_pickle
+from utils import logger
 
-logger = logging.getLogger(__name__)
 
-
-def compute_affinity_matrix(returns_df: pd.DataFrame) -> np.ndarray:
+def get_cluster_labels_spectral(
+    returns_df: pd.DataFrame,
+    cache_dir: str = "optuna_cache",
+    reoptimize: bool = False,
+) -> Dict[str, int]:
     """
-    Compute the correlation matrix for the asset returns and convert it
-    into an affinity matrix in [0, 1]. A simple way is to map correlation values
-    from [-1, 1] to [0, 1] via: affinity = (corr + 1) / 2.
+    Cluster assets based on their return correlations using spectral clustering.
+    The affinity matrix is computed using an RBF kernel transformation that is tuned via an Optuna study.
+    The asset clustering map (mapping tickers to cluster labels) is created within this function.
+    """
+    # Set up cache for parameters.
+    cache_path = Path(cache_dir)
+    cache_path.mkdir(parents=True, exist_ok=True)
+    cache_filename = cache_path / "spectral_params.pkl"
+
+    # Try to load cached parameters.
+    cached_params = load_parameters_from_pickle(cache_filename) or {}
+    if not reoptimize and "gamma" in cached_params and "n_clusters" in cached_params:
+        gamma = cached_params["gamma"]
+        n_clusters = cached_params["n_clusters"]
+        logger.info("Using cached spectral parameters.")
+    else:
+        logger.info("Optimizing spectral clustering parameters...")
+        best_params = run_spectral_affinity_study(returns_df, n_trials=50)
+        gamma = best_params["gamma"]
+        n_clusters = best_params["n_clusters"]
+        cached_params = {"gamma": gamma, "n_clusters": n_clusters}
+        save_parameters_to_pickle(cached_params, cache_filename)
+        logger.info("Optimized spectral parameters saved to cache.")
+
+    # Compute the tuned affinity matrix.
+    affinity = compute_affinity_matrix_rbf(returns_df, gamma)
+
+    # Run spectral clustering using the optimized parameters.
+    spectral = SpectralClustering(
+        n_clusters=n_clusters,
+        affinity="precomputed",
+        assign_labels="kmeans",
+        random_state=42,
+    )
+    cluster_labels = spectral.fit_predict(affinity)
+    asset_cluster_map = dict(zip(returns_df.columns, cluster_labels))
+
+    num_clusters = len(np.unique(np.array(list(asset_cluster_map.values()))))
+    logger.info(f"Spectral clustering produced {num_clusters} clusters.")
+
+    return asset_cluster_map
+
+
+def estimate_n_clusters(
+    affinity: np.ndarray, max_clusters: Optional[int] = None
+) -> int:
+    """
+    Estimate the number of clusters using eigen gap analysis on the normalized Laplacian.
 
     Args:
-        returns_df (pd.DataFrame): DataFrame with dates as index and assets as columns.
+        affinity (np.ndarray): The affinity matrix.
+        max_clusters (int, optional): Maximum number of clusters to consider.
+            Defaults to min(n_assets - 1, 10).
 
     Returns:
-        np.ndarray: The affinity matrix.
+        int: Estimated number of clusters.
     """
-    corr_matrix = returns_df.corr().values
-    # Map correlation from [-1, 1] to [0, 1]
-    affinity = (corr_matrix + 1) / 2.0
-    return affinity
+    n_assets = affinity.shape[0]
+    if max_clusters is None:
+        max_clusters = min(n_assets - 1, 10)
+
+    # Compute the normalized Laplacian
+    L = laplacian(affinity, normed=True)
+
+    # Compute the eigenvalues and sort them in ascending order.
+    eigenvalues = np.linalg.eigvals(L)
+    eigenvalues = np.sort(np.real(eigenvalues))
+
+    # Compute the differences (gaps) between consecutive eigenvalues
+    gaps = np.diff(eigenvalues[: max_clusters + 1])
+    estimated_k = (
+        int(np.argmax(gaps)) + 1
+    )  # +1 because gap between eigenvalue[i] and eigenvalue[i+1]
+
+    logger.info(f"Eigen gap analysis suggests {estimated_k} clusters.")
+    return estimated_k
 
 
 def filter_correlated_groups_spectral(
@@ -36,30 +106,54 @@ def filter_correlated_groups_spectral(
     top_n_per_cluster: int = 1,
     objective: str = "sharpe",
     plot: bool = False,
+    cache_dir: str = "optuna_cache",
+    reoptimize: bool = False,
 ) -> List[str]:
     """
     Uses spectral clustering on the asset returns to create fine‑grained, tight clusters.
-    The affinity is computed from the correlation matrix (scaled to [0, 1]).
+    The affinity is computed from the correlation matrix (scaled to [0, 1]). If n_clusters is not provided,
+    eigen gap analysis is used to estimate an optimal number.
 
     Args:
         returns_df (pd.DataFrame): DataFrame with dates as index and assets as columns.
         risk_free_rate (float): Risk-free rate for performance metric calculation.
-        n_clusters (int, optional): The number of clusters to form. If None, it is set to 10% of assets.
+        n_clusters (int, optional): The number of clusters to form. If None, it is estimated via eigen gap analysis.
         top_n_per_cluster (int): How many top assets to select from each cluster.
-        plot (bool): If True, display a TSNE visualization of the clusters.
+        objective (str): The performance metric objective for ranking assets.
+        plot (bool): If True, display TSNE and UMAP visualizations of the clusters.
 
     Returns:
         List[str]: A list of selected asset tickers.
     """
     n_assets = returns_df.shape[1]
-    # If n_clusters is not specified, set it to roughly 10% of the assets.
-    if n_clusters is None:
-        n_clusters = max(2, math.ceil(n_assets * 0.1))
-        logger.info(
-            f"n_clusters not provided. Setting n_clusters = {n_clusters} for {n_assets} assets."
-        )
 
-    affinity = compute_affinity_matrix(returns_df)
+    cache_path = Path(cache_dir)
+    cache_path.mkdir(parents=True, exist_ok=True)
+    cache_filename = cache_path / "spectral_params.pkl"
+    cached_params = load_parameters_from_pickle(cache_filename) or {}
+
+    if not reoptimize and "gamma" in cached_params and "n_clusters" in cached_params:
+        gamma = cached_params["gamma"]
+        n_clusters_cached = cached_params["n_clusters"]
+        if n_clusters is None:
+            n_clusters = n_clusters_cached
+        logger.info(
+            f"Using cached spectral parameters: gamma = {gamma}, n_clusters = {n_clusters}"
+        )
+    else:
+        logger.info("Optimizing spectral clustering parameters...")
+        best_params = run_spectral_affinity_study(returns_df, n_trials=50)
+        gamma = best_params["gamma"]
+        n_clusters_optimized = best_params["n_clusters"]
+        if n_clusters is None:
+            n_clusters = n_clusters_optimized
+        cached_params = {"gamma": gamma, "n_clusters": n_clusters_optimized}
+        save_parameters_to_pickle(cached_params, cache_filename)
+        logger.info("Optimized spectral parameters saved to cache.")
+
+    # Compute the affinity matrix using the RBF kernel transformation.
+    affinity = compute_affinity_matrix_rbf(returns_df, gamma)
+    logger.info(f"Using n_clusters = {n_clusters} for {n_assets} assets.")
 
     # Run spectral clustering using the precomputed affinity matrix.
     spectral = SpectralClustering(
@@ -88,7 +182,6 @@ def filter_correlated_groups_spectral(
     # For each cluster, select the top performer(s)
     selected_tickers: List[str] = []
     for label, ticker_group in clusters.items():
-        # You can handle noise (if any) separately; here we assume no special noise label.
         group_perf = perf_series[ticker_group].sort_values(ascending=False)
         top_candidates = group_perf.index.tolist()[:top_n_per_cluster]
         selected_tickers.extend(top_candidates)
@@ -97,7 +190,18 @@ def filter_correlated_groups_spectral(
         )
 
     if plot:
-        visualize_clusters_tsne(returns_df, cluster_labels)
+        visualize_clusters_tsne(
+            returns_df,
+            cluster_labels,
+            title="t-SNE Visualization of Asset Clusters via Spectral Clustering",
+        )
+        visualize_clusters_umap(
+            returns_df=returns_df,
+            cluster_labels=cluster_labels,
+            n_neighbors=50,
+            min_dist=0.5,
+            title="UMAP Visualization of Asset Clusters via Spectral Clustering",
+        )
 
     removed_tickers = set(tickers) - set(selected_tickers)
     logger.info(
