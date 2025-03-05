@@ -77,7 +77,7 @@ def filter_correlated_groups_hdbscan(
         logger.info("No assets were removed.")
     logger.info(f"{len(selected_tickers)} assets remain")
 
-    # Optionally, visualize the clusters using TSNE
+    # Optionally, visualize the clusters using UMAP or TSNE
     if plot:
         labels_in_order = np.array(
             [asset_cluster_map[ticker] for ticker in returns_df.columns]
@@ -88,11 +88,13 @@ def filter_correlated_groups_hdbscan(
             cluster_labels=labels_in_order,
             n_neighbors=50,
             min_dist=0.5,
+            title="UMAP Visualization of Asset Clusters via HDBSCAN"
         )
 
-        # visualize_clusters_tsne(
-        #     returns_df=returns_df,
-        #     cluster_labels=labels_in_order,
-        # )
+        visualize_clusters_tsne(
+            returns_df=returns_df,
+            cluster_labels=labels_in_order,
+            title="t-SNE Visualization of Asset Clusters via HDBSCAN"
+        )
 
     return selected_tickers
