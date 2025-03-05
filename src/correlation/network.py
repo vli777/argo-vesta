@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from networkx.algorithms import community as nx_comm
-import math
+
 
 from correlation.correlation_utils import compute_correlation_matrix
 
@@ -30,9 +30,11 @@ def mst_community_detection(returns_df: pd.DataFrame) -> np.ndarray:
 
     # Step 3: Build a complete weighted graph from the distance matrix.
     # networkx.from_numpy_array creates nodes [0, 1, ..., n-1]; we relabel them using tickers.
-    G_complete = nx.from_numpy_array(dist)
+    # Step 3: Build a complete weighted graph from the distance matrix.
+    G_complete = nx.from_numpy_array(dist.values)
     mapping = {i: tickers[i] for i in range(n)}
     G_complete = nx.relabel_nodes(G_complete, mapping)
+
 
     # Step 4: Compute the Minimum Spanning Tree (MST) of the complete graph.
     MST = nx.minimum_spanning_tree(G_complete, weight="weight")
@@ -50,21 +52,3 @@ def mst_community_detection(returns_df: pd.DataFrame) -> np.ndarray:
     # Step 6: Build an array of cluster labels in the order of returns_df.columns.
     cluster_labels = np.array([labels[ticker] for ticker in tickers])
     return cluster_labels
-
-
-# Example usage:
-if __name__ == "__main__":
-    # Generate dummy returns data for 50 assets over 252 trading days.
-    np.random.seed(42)
-    dummy_returns = np.random.randn(252, 50)
-    dates = pd.date_range("2020-01-01", periods=252, freq="B")
-    tickers = [f"Asset_{i}" for i in range(50)]
-    returns_df = pd.DataFrame(dummy_returns, index=dates, columns=tickers)
-
-    # Perform MST + community detection clustering.
-    labels = mst_community_detection(returns_df)
-    print("Cluster labels:", labels)
-
-    # Optionally, you can inspect the number of clusters.
-    n_clusters = len(np.unique(labels))
-    print(f"Number of clusters detected: {n_clusters}")
