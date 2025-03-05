@@ -151,13 +151,12 @@ def run_optimization_and_save(
                 weights_array, cov_annual.to_numpy()
             )
 
+            sqrt_n_assets = int(np.sqrt(len(weights)))
             portfolio_max_size = estimate_optimal_num_assets(
-                vol_limit=(
-                    config.options["portfolio_max_vol"]
-                    if config.options["portfolio_max_vol"]
-                    else current_vol
+                vol_limit=(config.options.get("portfolio_max_vol") or current_vol),
+                portfolio_max_size=config.options.get(
+                    "portfolio_max_size", sqrt_n_assets
                 ),
-                portfolio_max_size=config.options["portfolio_max_size"],
             ) or len(weights)
             logger.info(f"portfolio max size: {portfolio_max_size}")
             weights = convert_weights_to_series(weights, index=mu_annual.index)
