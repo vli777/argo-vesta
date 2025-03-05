@@ -7,7 +7,7 @@ from scipy.sparse.csgraph import laplacian
 
 from correlation.plot_clusters import visualize_clusters_tsne, visualize_clusters_umap
 from models.optimizer_utils import get_objective_weights, strategy_performance_metrics
-from correlation.specrtal_optimize import (
+from correlation.spectral_optimize import (
     compute_affinity_matrix_rbf,
     run_spectral_affinity_study,
 )
@@ -28,7 +28,7 @@ def get_cluster_labels_spectral(
     # Set up cache for parameters.
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
-    cache_filename = cache_path / "spectral_params.pkl"
+    cache_filename = cache_path / "clustering_spectral_params.pkl"
 
     # Try to load cached parameters.
     cached_params = load_parameters_from_pickle(cache_filename) or {}
@@ -129,7 +129,7 @@ def filter_correlated_groups_spectral(
 
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
-    cache_filename = cache_path / "spectral_params.pkl"
+    cache_filename = cache_path / "clustering_spectral_params.pkl"
     cached_params = load_parameters_from_pickle(cache_filename) or {}
 
     if not reoptimize and "gamma" in cached_params and "n_clusters" in cached_params:

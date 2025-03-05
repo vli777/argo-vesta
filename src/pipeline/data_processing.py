@@ -5,11 +5,13 @@ from pathlib import Path
 
 from config import Config
 from anomaly.anomaly_detection import remove_anomalous_stocks
-from correlation.cluster_assets import get_cluster_labels
-from correlation.filter_hdbscan import filter_correlated_groups_hdbscan
+from correlation.hdbscan_clustering import (
+    filter_correlated_groups_hdbscan,
+    get_cluster_labels,
+)
 from pipeline.process_symbols import process_symbols
-from correlation.network import mst_community_detection
-from correlation.spectral import (
+from correlation.networkx_clustering import mst_community_detection
+from correlation.spectral_clustering import (
     filter_correlated_groups_spectral,
     get_cluster_labels_spectral,
 )
@@ -120,7 +122,7 @@ def preprocess_data(
 
     labels = mst_community_detection(returns_df)
     n_clusters = len(np.unique(labels))
-    logger(f"MST networkx number of clusters detected: {n_clusters}")
+    logger.info(f"MST networkx number of clusters detected: {n_clusters}")
 
     # Create asset cluster map using the selected method.
     if clustering_method == "spectral":

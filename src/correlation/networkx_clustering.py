@@ -35,7 +35,6 @@ def mst_community_detection(returns_df: pd.DataFrame) -> np.ndarray:
     mapping = {i: tickers[i] for i in range(n)}
     G_complete = nx.relabel_nodes(G_complete, mapping)
 
-
     # Step 4: Compute the Minimum Spanning Tree (MST) of the complete graph.
     MST = nx.minimum_spanning_tree(G_complete, weight="weight")
 
