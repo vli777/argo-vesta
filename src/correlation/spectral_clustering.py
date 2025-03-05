@@ -64,6 +64,28 @@ def get_cluster_labels_spectral(
     return asset_cluster_map
 
 
+def get_clusters_top_performers(clusters: dict, perf_series: pd.Series) -> list[str]:
+    selected_tickers: list[str] = []
+    for label, tickers in clusters.items():
+        # For noise (label == -1), include all tickers
+        if label == -1:
+            selected_tickers.extend(tickers)
+        else:
+            group_perf = perf_series[tickers].sort_values(ascending=False)
+            if len(tickers) < 10:
+                top_n = len(tickers)
+            elif len(tickers) < 20:
+                top_n = max(1, int(0.50 * len(tickers)))
+            else:
+                top_n = max(1, int(0.33 * len(tickers)))
+            top_candidates = group_perf.index.tolist()[:top_n]
+            selected_tickers.extend(top_candidates)
+            logger.info(
+                f"Cluster {label}: {len(tickers)} assets; keeping {top_candidates}"
+            )
+    return selected_tickers
+
+
 def estimate_n_clusters(
     affinity: np.ndarray, max_clusters: Optional[int] = None
 ) -> int:
@@ -103,7 +125,6 @@ def filter_correlated_groups_spectral(
     returns_df: pd.DataFrame,
     risk_free_rate: float = 0.0,
     n_clusters: Optional[int] = None,
-    top_n_per_cluster: int = 1,
     objective: str = "sharpe",
     plot: bool = False,
     cache_dir: str = "optuna_cache",
@@ -118,7 +139,6 @@ def filter_correlated_groups_spectral(
         returns_df (pd.DataFrame): DataFrame with dates as index and assets as columns.
         risk_free_rate (float): Risk-free rate for performance metric calculation.
         n_clusters (int, optional): The number of clusters to form. If None, it is estimated via eigen gap analysis.
-        top_n_per_cluster (int): How many top assets to select from each cluster.
         objective (str): The performance metric objective for ranking assets.
         plot (bool): If True, display TSNE and UMAP visualizations of the clusters.
 
@@ -180,14 +200,8 @@ def filter_correlated_groups_spectral(
     )
 
     # For each cluster, select the top performer(s)
-    selected_tickers: List[str] = []
-    for label, ticker_group in clusters.items():
-        group_perf = perf_series[ticker_group].sort_values(ascending=False)
-        top_candidates = group_perf.index.tolist()[:top_n_per_cluster]
-        selected_tickers.extend(top_candidates)
-        logger.info(
-            f"Cluster {label}: {len(ticker_group)} assets; selected {top_candidates}"
-        )
+    # Select the best-performing tickers from each cluster
+    selected_tickers = get_clusters_top_performers(clusters, perf_series)
 
     if plot:
         visualize_clusters_tsne(
