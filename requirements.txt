@@ -27,7 +27,7 @@ greenlet==3.1.1
 h11==0.14.0
 hdbscan==0.8.40
 idna==3.10
-Jinja2==3.1.4
+Jinja2==3.1.5
 joblib==1.4.2
 kiwisolver==1.4.8
 korean-lunar-calendar==0.3.1
