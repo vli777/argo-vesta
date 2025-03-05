@@ -161,7 +161,9 @@ def run_optimization_and_save(
             ) or len(weights)
             logger.info(f"portfolio max size: {portfolio_max_size}")
             weights = convert_weights_to_series(weights, index=mu_annual.index)
-            normalized_weights = normalize_weights(weights, config.options["min_weight"])
+            normalized_weights = normalize_weights(
+                weights, config.options["min_weight"]
+            )
             final_weights = limit_portfolio_size(
                 normalized_weights, portfolio_max_size, target_sum=1.0
             )

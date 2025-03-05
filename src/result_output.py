@@ -60,7 +60,8 @@ def output(
 
     # Trim if we have more assets than allowed
     portfolio_max_size = estimate_optimal_num_assets(
-        vol_limit=config.options["portfolio_max_vol"], portfolio_max_size=config.options["portfolio_max_size"]
+        vol_limit=config.options["portfolio_max_vol"],
+        portfolio_max_size=config.options["portfolio_max_size"],
     ) or len(clean_weights)
 
     if len(clean_weights) > portfolio_max_size:
@@ -81,9 +82,13 @@ def output(
     # from scipy.stats import skew
     # print("Portfolio return skew:", skew(portfolio_returns))
 
-    sharpe = sharpe_ratio(portfolio_returns, risk_free_rate=config.options["risk_free_rate"])
+    sharpe = sharpe_ratio(
+        portfolio_returns, risk_free_rate=config.options["risk_free_rate"]
+    )
     # kappa = kappa_ratio(portfolio_returns, risk_free_rate=config.risk_free_rate)
-    omega = omega_ratio(portfolio_returns, risk_free_rate=config.options["risk_free_rate"])
+    omega = omega_ratio(
+        portfolio_returns, risk_free_rate=config.options["risk_free_rate"]
+    )
     volatility = portfolio_volatility(portfolio_returns)
     cvar = conditional_var(portfolio_returns)
     max_dd = max_drawdown(portfolio_cumulative_returns)

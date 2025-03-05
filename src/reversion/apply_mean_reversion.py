@@ -59,7 +59,9 @@ def apply_mean_reversion(
     ]
 
     # 4. Objective weights (e.g., sharpe, cumulative return, etc.)
-    objective_weights = get_objective_weights(objective=config.options["optimization_objective"])
+    objective_weights = get_objective_weights(
+        objective=config.options["optimization_objective"]
+    )
 
     # 5. Optimize (if stale or missing)
     if cache_is_stale or missing_tickers:

@@ -188,7 +188,10 @@ def run_pipeline(
     if not normalized_avg_weights:
         return {}
 
-    if config.options["portfolio_max_vol"] is not None or config.options["portfolio_max_cvar"] is not None:
+    if (
+        config.options["portfolio_max_vol"] is not None
+        or config.options["portfolio_max_cvar"] is not None
+    ):
         # Preprocess df_all to compute risk estimates for the merged portfolio.
         # This follows the original logic: flatten the MultiIndex and reindex by all_dates and valid_symbols.
         df_risk = df_all.loc[start_long:end_long].copy()
@@ -258,7 +261,10 @@ def run_pipeline(
         )
 
         # If portfolio_max_vol is not specified, set it to the current portfolio's volatility.
-        if config.options["portfolio_max_cvar"] is not None and config.options["portfolio_max_vol"] is None:
+        if (
+            config.options["portfolio_max_cvar"] is not None
+            and config.options["portfolio_max_vol"] is None
+        ):
             logger.info(
                 f"portfolio_max_vol not specified with portfolio_max_cvar enabled; using current portfolio vol: {current_vol:.2f} and shorting enabled"
             )
@@ -268,7 +274,10 @@ def run_pipeline(
         # Final pass: apply risk constraints to the merged portfolio
         risk_adjusted_weights = (
             apply_risk_constraints(normalized_avg_weights, risk_estimates, config)
-            if (config.options["portfolio_max_cvar"] or config.options["portfolio_max_vol"])
+            if (
+                config.options["portfolio_max_cvar"]
+                or config.options["portfolio_max_vol"]
+            )
             else normalized_avg_weights
         )
 
