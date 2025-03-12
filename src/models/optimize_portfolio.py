@@ -329,10 +329,11 @@ def optimize_weights_objective(
             callback=cb,
         )
 
-        if not result.success:
-            raise ValueError("Dual annealing optimization failed: " + result.message)
-
-        return result.x
+        if result.success:
+            return result.x
+        else:
+            logger.warning("Dual annealing optimization failed: " + result.message)
+            logger.info("Falling back to standard local solver.")
 
     if use_diffusion:
         cb = callback if callback is not None else (lambda x, convergence: False)
@@ -348,12 +349,14 @@ def optimize_weights_objective(
             callback=cb,
         )
 
-        if not result.success:
-            raise ValueError(
-                "Stochastic diffusion optimization failed: " + result.message
+        if result.success:
+            return result.x
+        else:
+            logger.warning(
+                "Stochastic diffusion optimization did not converge: " + result.message
             )
+            logger.info("Falling back to standard local solver.")
 
-        return result.x
     # --- Standard Local Solver Branch ---
     result = minimize(
         chosen_obj,

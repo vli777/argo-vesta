@@ -68,8 +68,9 @@ def multi_seed_diffusion(
     best_result = min(results, key=lambda r: r.fun)
 
     if not best_result.success:
-        raise ValueError(
-            "Stochastic diffusion optimization failed: " + best_result.message
+        # Instead of raising an error, log a warning and return the best result.
+        logger.warning(
+            "Stochastic diffusion optimization did not converge: " + best_result.message
         )
 
     return best_result
