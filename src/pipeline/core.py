@@ -9,7 +9,7 @@ import pandas as pd
 
 from config import Config
 from plotly_graphs import plot_graphs
-from portfolio_optimization import run_optimization_and_save
+from pipeline.portfolio_optimization import run_optimization_and_save
 from apply_reversion import (
     apply_ou_reversion,
     apply_z_reversion,
