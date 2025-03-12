@@ -25,7 +25,11 @@ def visualize_clusters_umap(
     """
     # Transpose the DataFrame so that each asset is represented as a feature vector.
     asset_data = returns_df.T
+    n_samples = asset_data.shape[0]
 
+    # Ensure n_neighbors is always valid
+    n_neighbors = min(n_neighbors, max(n_samples - 1, 1))
+    
     # Create the UMAP reducer and transform the data.
     reducer = umap.UMAP(
         n_neighbors=n_neighbors, min_dist=min_dist, metric=metric, random_state=42
