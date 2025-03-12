@@ -8,6 +8,7 @@ from models.optimizer_utils import strategy_performance_metrics, get_objective_w
 from correlation.correlation_utils import compute_distance_matrix
 from correlation.hdbscan_optimize import run_hdbscan_decorrelation_study
 from correlation.plot_clusters import visualize_clusters_tsne, visualize_clusters_umap
+from src.correlation.cluster_utils import get_clusters_top_performers
 from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_pickle
 from utils.logger import logger
 
@@ -140,24 +141,7 @@ def filter_correlated_groups_hdbscan(
     )
 
     # Select the best-performing tickers from each cluster
-    selected_tickers: list[str] = []
-    for label, tickers in clusters.items():
-        # For noise (label == -1), include all tickers
-        if label == -1:
-            selected_tickers.extend(tickers)
-        else:
-            group_perf = perf_series[tickers].sort_values(ascending=False)
-            if len(tickers) < 10:
-                top_n = len(tickers)
-            elif len(tickers) < 20:
-                top_n = max(1, int(0.50 * len(tickers)))
-            else:
-                top_n = max(1, int(0.33 * len(tickers)))
-            top_candidates = group_perf.index.tolist()[:top_n]
-            selected_tickers.extend(top_candidates)
-            logger.info(
-                f"Cluster {label}: {len(tickers)} assets; keeping {top_candidates}"
-            )
+    selected_tickers = get_clusters_top_performers(clusters, perf_series)
 
     removed_tickers = set(returns_df.columns) - set(selected_tickers)
     if removed_tickers:
