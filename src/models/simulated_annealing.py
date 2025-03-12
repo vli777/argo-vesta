@@ -9,17 +9,36 @@ from utils import logger
 def multi_seed_dual_annealing(
     penalized_obj,
     bounds,
-    num_runs=10,
-    maxiter=1000,
-    initial_temp=5000,
-    visit=3.0,
-    accept=-3.0,
+    num_runs: int = 10,
+    maxiter: int = 1000,
+    initial_temp: float = 5000,
+    visit: float = 3.0,
+    accept: float = -3.0,
     callback=None,
+    initial_candidate: np.ndarray = None,
 ):
+    """
+    Performs global optimization using dual annealing with multiple random seeds,
+    optionally starting from an initial candidate solution.
+
+    Parameters:
+        penalized_obj (callable): The objective function to minimize.
+        bounds (list of tuples): Bounds for each dimension.
+        num_runs (int): Number of random seeds to try.
+        maxiter (int): Maximum number of iterations.
+        initial_temp (float): Initial temperature for the annealing algorithm.
+        visit (float): The visit parameter controlling the neighborhood search.
+        accept (float): The acceptance parameter.
+        callback (callable, optional): Optional callback function.
+        initial_candidate (np.ndarray, optional): An initial candidate solution to seed the search.
+
+    Returns:
+        scipy.optimize.OptimizeResult: The best optimization result found.
+    """
     cb = callback if callback is not None else (lambda x, f, context: False)
     results = []
 
-    # Create an independent random generator
+    # Create an independent random generator for reproducibility.
     global_rng = np.random.default_rng(42)
     seeds = [global_rng.integers(0, 1e6) for _ in range(num_runs)]
 
@@ -35,6 +54,7 @@ def multi_seed_dual_annealing(
                 accept=accept,
                 callback=cb,
                 seed=seed,
+                x0=initial_candidate,  # Pass the initial candidate if provided.
             ): seed
             for seed in seeds
         }
