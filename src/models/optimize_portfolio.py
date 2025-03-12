@@ -300,24 +300,41 @@ def optimize_weights_objective(
     # --- Global Optimization Branch ---
 
     if use_annealing or use_diffusion:
-        # Create the penalty function with all required arguments
+        local_result = minimize(
+            chosen_obj,
+            init_weights,
+            method=solver_method,
+            bounds=bounds,
+            constraints=constraints,
+            options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
+        )
+        if local_result.success:
+            initial_candidate = local_result.x
+            logger.info(
+                "Local solver succeeded; candidate obtained for global expansion."
+            )
+        else:
+            logger.warning(
+                "Local solver did not converge; using init_weights as candidate."
+            )
+            initial_candidate = init_weights
+
+        # Configure the penalty function and the penalized objective.
         penalty_function = partial(
             penalty,
             penalty_weight=penalty_weight,
             constraints=constraints,
             target_sum=target_sum,
         )
-
-        # Create the penalized objective function
         penalized_obj = partial(
             penalized_objective,
             chosen_obj=chosen_obj,
-            penalty=penalty_function,  # Use the fully configured penalty function
+            penalty=penalty_function,
         )
 
     if use_annealing:
         cb = callback if callback is not None else (lambda x, f, context: False)
-
+        # Assumes multi_seed_dual_annealing accepts an 'initial_candidate' parameter.
         result = multi_seed_dual_annealing(
             penalized_obj,
             bounds=bounds,
@@ -327,8 +344,8 @@ def optimize_weights_objective(
             visit=10,
             accept=-10.0,
             callback=cb,
+            initial_candidate=initial_candidate,
         )
-
         if result.success:
             return result.x
         else:
@@ -337,18 +354,18 @@ def optimize_weights_objective(
 
     if use_diffusion:
         cb = callback if callback is not None else (lambda x, convergence: False)
-
+        # Assumes multi_seed_diffusion accepts an 'initial_candidate' parameter.
         result = multi_seed_diffusion(
             penalized_obj,
             bounds=bounds,
-            num_runs=3,  # Number of random seeds
-            popsize=15,  # Population size
-            maxiter=10000,  # Number of generations
-            mutation=(0.5, 1),  # Mutation range
-            recombination=0.7,  # Recombination rate
+            num_runs=3,  # Number of random seeds.
+            popsize=15,  # Population size.
+            maxiter=10000,  # Number of generations.
+            mutation=(0.5, 1),  # Mutation range.
+            recombination=0.7,  # Recombination rate.
             callback=cb,
+            initial_candidate=initial_candidate,
         )
-
         if result.success:
             return result.x
         else:

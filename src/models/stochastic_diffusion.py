@@ -49,7 +49,9 @@ def multi_seed_diffusion(
         init_pop[0] = initial_candidate
         # Fill the rest uniformly from bounds.
         for i in range(1, popsize):
-            init_pop[i] = np.array([np.random.uniform(low, high) for (low, high) in bounds])
+            init_pop[i] = np.array(
+                [np.random.uniform(low, high) for (low, high) in bounds]
+            )
         init_param = init_pop
     else:
         init_param = "latinhypercube"
@@ -79,8 +81,11 @@ def multi_seed_diffusion(
 
         start_time = time.monotonic()
         try:
-            for future in tqdm(as_completed(futures, timeout=time_limit),
-                               total=len(futures), desc="Stochastic Diffusion"):
+            for future in tqdm(
+                as_completed(futures, timeout=time_limit),
+                total=len(futures),
+                desc="Stochastic Diffusion",
+            ):
                 try:
                     result = future.result()
                     results.append(result)
@@ -94,7 +99,9 @@ def multi_seed_diffusion(
 
     # If no results are available, wait briefly for at least one.
     if not results:
-        logger.warning("No diffusion runs completed within the time limit; waiting for one result.")
+        logger.warning(
+            "No diffusion runs completed within the time limit; waiting for one result."
+        )
         for future in futures:
             try:
                 result = future.result(timeout=5)

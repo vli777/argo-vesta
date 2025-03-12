@@ -29,7 +29,7 @@ def visualize_clusters_umap(
 
     # Ensure n_neighbors is always valid
     n_neighbors = min(n_neighbors, max(n_samples - 1, 1))
-    
+
     # Create the UMAP reducer and transform the data.
     reducer = umap.UMAP(
         n_neighbors=n_neighbors, min_dist=min_dist, metric=metric, random_state=42
