@@ -10,7 +10,7 @@ from correlation.hdbscan_clustering import (
     get_cluster_labels,
 )
 from pipeline.process_symbols import process_symbols
-from correlation.networkx_clustering import mst_community_detection
+from correlation.networkx_clustering import filter_correlated_groups_mst, get_cluster_labels_mst, mst_community_detection
 from correlation.spectral_clustering import (
     filter_correlated_groups_spectral,
     get_cluster_labels_spectral,
@@ -120,14 +120,20 @@ def preprocess_data(
             plot=config.options["plot_clustering"],
         )
 
-    labels = mst_community_detection(returns_df)
-    n_clusters = len(np.unique(labels))
-    logger.info(f"MST networkx number of clusters detected: {n_clusters}")
-
     # Create asset cluster map using the selected method.
     if clustering_method == "spectral":
         asset_cluster_map = get_cluster_labels_spectral(
             returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
+        )
+    elif clustering_method == 'mst':
+        """
+        MST community detection is generally parameter-free in this context. Unlike spectral clustering
+        —which requires tuning parameters like gamma and the number of clusters—the MST method builds a
+        complete graph from your distance matrix, computes its minimum spanning tree, and then applies a
+        parameter-free greedy modularity algorithm for community detection.
+        """
+        asset_cluster_map = get_cluster_labels_mst(  
+             returns_df=returns_df
         )
     else:  # fallback to hdbscan
         asset_cluster_map = get_cluster_labels(
@@ -189,6 +195,13 @@ def filter_correlated_assets(
     try:
         if clustering_method == "spectral":
             decorrelated_tickers = filter_correlated_groups_spectral(
+                returns_df=returns_df,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.options.get("plot_clustering", False),
+                objective=config.options.get("optimization_objective", "sharpe"),
+            )
+        elif clustering_method == "mst":
+            decorrelated_tickers = filter_correlated_groups_mst(
                 returns_df=returns_df,
                 risk_free_rate=risk_free_rate_log_daily,
                 plot=config.options.get("plot_clustering", False),

@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -5,9 +6,15 @@ from networkx.algorithms import community as nx_comm
 
 
 from correlation.correlation_utils import compute_correlation_matrix
+from correlation.plot_clusters import visualize_clusters_tsne, visualize_clusters_umap
+from models.optimizer_utils import get_objective_weights, strategy_performance_metrics
+from correlation.cluster_utils import get_clusters_top_performers
+from utils import logger
 
 
-def mst_community_detection(returns_df: pd.DataFrame) -> np.ndarray:
+def get_cluster_labels_mst(
+    returns_df: pd.DataFrame,
+) -> np.ndarray:
     """
     Cluster assets by constructing a Minimum Spanning Tree (MST) from the distance matrix
     (derived from the correlation matrix of returns) and then detecting communities using
@@ -42,12 +49,63 @@ def mst_community_detection(returns_df: pd.DataFrame) -> np.ndarray:
     # Using the greedy modularity communities algorithm.
     communities = list(nx_comm.greedy_modularity_communities(MST, weight="weight"))
 
-    # Create a dictionary mapping each ticker to its community label.
-    labels = {}
-    for i, comm in enumerate(communities):
-        for node in comm:
-            labels[node] = i
+    # Build the asset cluster map.
+    asset_cluster_map = {}
+    for label, community in enumerate(communities):
+        for ticker in community:
+            asset_cluster_map[ticker] = label
 
-    # Step 6: Build an array of cluster labels in the order of returns_df.columns.
-    cluster_labels = np.array([labels[ticker] for ticker in tickers])
-    return cluster_labels
+    logger.info(f"MST community detection produced {len(communities)} clusters.")
+    return asset_cluster_map
+
+
+def filter_correlated_groups_mst(
+    returns_df: pd.DataFrame,
+    risk_free_rate: float = 0.0,
+    objective: str = "sharpe",
+    plot: bool = False,
+) -> List[str]:
+    """
+    Uses MST community detection to group assets, then selects top performers from each community.
+    """
+    # Obtain the asset cluster map using MST.
+    asset_cluster_map = get_cluster_labels_mst(returns_df)
+
+    # Group tickers by their assigned cluster label.
+    clusters = {}
+    for ticker, label in asset_cluster_map.items():
+        clusters.setdefault(label, []).append(ticker)
+
+    # Compute performance metrics.
+    objective_weights = get_objective_weights(objective)
+    perf_series = strategy_performance_metrics(
+        returns_df=returns_df,
+        risk_free_rate=risk_free_rate,
+        objective_weights=objective_weights,
+    )
+
+    # Select the best-performing tickers from each cluster.
+    selected_tickers = get_clusters_top_performers(clusters, perf_series)
+
+    if plot:
+        # Generate visualizations using the cluster labels in the original order.
+        labels_in_order = [asset_cluster_map[ticker] for ticker in returns_df.columns]
+        visualize_clusters_tsne(
+            returns_df,
+            cluster_labels=labels_in_order,
+            title="t-SNE Visualization of Asset Clusters via MST Community Detection",
+        )
+        visualize_clusters_umap(
+            returns_df=returns_df,
+            cluster_labels=labels_in_order,
+            n_neighbors=50,
+            min_dist=0.5,
+            title="UMAP Visualization of Asset Clusters via MST Community Detection",
+        )
+
+    removed_tickers = set(returns_df.columns) - set(selected_tickers)
+    logger.info(
+        f"Removed {len(removed_tickers)} assets; {len(selected_tickers)} assets remain."
+    )
+
+    return selected_tickers
