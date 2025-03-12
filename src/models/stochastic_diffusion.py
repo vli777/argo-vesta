@@ -16,13 +16,15 @@ def multi_seed_diffusion(
     mutation=(0.5, 1),
     recombination: float = 0.7,
     callback=None,
-    time_limit: float = 180.0,
+    time_limit: float = 60.0,
     initial_candidate: np.ndarray = None,
+    perturb_scale: float = 0.05,  # fraction of each bound range to perturb
 ):
     """
     Performs global optimization using stochastic diffusion (differential evolution)
-    with multiple random seeds, using an initial candidate (from a local solver) if provided.
-    Returns the best optimization result obtained within the time limit.
+    with multiple random seeds. If an initial candidate is provided, it generates an
+    initial population around that candidate by random perturbations, so the global
+    search can explore nearby regions rather than being stuck in the local optimum.
 
     Parameters:
         penalized_obj (callable): The objective function to minimize.
@@ -33,8 +35,9 @@ def multi_seed_diffusion(
         mutation (float or tuple): Mutation factor.
         recombination (float): Recombination rate between 0 and 1.
         callback (callable, optional): Optional callback function.
-        time_limit (float): Maximum time in seconds to wait for diffusion runs.
-        initial_candidate (np.ndarray, optional): A candidate solution to seed the population.
+        time_limit (float): Maximum time (in seconds) to wait for diffusion runs.
+        initial_candidate (np.ndarray, optional): A candidate solution from the local solver.
+        perturb_scale (float): Scale for random perturbation as a fraction of the bound range.
 
     Returns:
         scipy.optimize.OptimizeResult: The best optimization result found.
@@ -42,21 +45,26 @@ def multi_seed_diffusion(
     cb = callback if callback is not None else (lambda x, convergence: False)
     results = []
 
-    # Determine population initialization.
+    # Create a custom initial population
     if initial_candidate is not None:
         ndim = len(initial_candidate)
         init_pop = np.empty((popsize, ndim))
+        # First candidate is the local candidate.
         init_pop[0] = initial_candidate
-        # Fill the rest uniformly from bounds.
         for i in range(1, popsize):
-            init_pop[i] = np.array(
-                [np.random.uniform(low, high) for (low, high) in bounds]
-            )
+            candidate = initial_candidate.copy()
+            for j, (low, high) in enumerate(bounds):
+                # Compute perturbation scale relative to bound range.
+                range_val = high - low
+                perturbation = np.random.uniform(-perturb_scale * range_val,
+                                                 perturb_scale * range_val)
+                candidate[j] = np.clip(candidate[j] + perturbation, low, high)
+            init_pop[i] = candidate
         init_param = init_pop
     else:
         init_param = "latinhypercube"
 
-    # Create random seeds.
+    # Create an independent random generator for reproducibility.
     global_rng = np.random.default_rng(42)
     seeds = [global_rng.integers(0, 1e6) for _ in range(num_runs)]
 
@@ -81,11 +89,8 @@ def multi_seed_diffusion(
 
         start_time = time.monotonic()
         try:
-            for future in tqdm(
-                as_completed(futures, timeout=time_limit),
-                total=len(futures),
-                desc="Stochastic Diffusion",
-            ):
+            for future in tqdm(as_completed(futures, timeout=time_limit),
+                               total=len(futures), desc="Stochastic Diffusion"):
                 try:
                     result = future.result()
                     results.append(result)
@@ -97,11 +102,8 @@ def multi_seed_diffusion(
         except TimeoutError:
             logger.info("Time limit reached while waiting for futures.")
 
-    # If no results are available, wait briefly for at least one.
     if not results:
-        logger.warning(
-            "No diffusion runs completed within the time limit; waiting for one result."
-        )
+        logger.warning("No diffusion runs completed within the time limit; waiting for one result.")
         for future in futures:
             try:
                 result = future.result(timeout=5)
