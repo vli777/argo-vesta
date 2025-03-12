@@ -63,7 +63,7 @@ class Config:
         defaults = {
             "download": False,
             "input_files": [],
-            "min_weight": 0.00,
+            "min_weight": 0.0,
             "max_weight": 1.0,
             "portfolio_max_size": None,
             "portfolio_max_vol": None,
