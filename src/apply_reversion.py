@@ -166,7 +166,7 @@ def apply_ou_reversion(
     )
     multi_asset_returns = multi_asset_returns.fillna(0)
 
-    if config.options["plot_reversion"]:
+    if config.plot_reversion:
         filtered_price_data = {
             ticker: dfs["data"][ticker]
             for ticker, signals in ou_signals.items()

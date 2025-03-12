@@ -25,24 +25,20 @@ def adaptive_risk_constraints(
     """
     # Extract optional risk limits: leave as None if not specified.
     max_vol: Optional[float] = (
-        float(config.options["portfolio_max_vol"])
-        if config.options["portfolio_max_vol"] is not None
+        float(config.portfolio_max_vol)
+        if config.portfolio_max_vol is not None
         else None
     )
     max_cvar: Optional[float] = (
-        float(config.options["portfolio_max_cvar"])
-        if config.options["portfolio_max_cvar"] is not None
+        float(config.portfolio_max_cvar)
+        if config.portfolio_max_cvar is not None
         else None
     )
-    max_weight = (
-        float(config.options["max_weight"])
-        if config.options["max_weight"] is not None
-        else 1.0
-    )
-    allow_short: bool = config.options["allow_short"]
-    risk_priority: str = config.options["portfolio_risk_priority"]
-    optimization_objective: str = config.options["optimization_objective"]
-    risk_free_rate: float = config.options["risk_free_rate"]
+    max_weight = float(config.max_weight) if config.max_weight is not None else 1.0
+    allow_short: bool = config.allow_short
+    risk_priority: str = config.portfolio_risk_priority
+    optimization_objective: str = config.optimization_objective
+    risk_free_rate: float = config.risk_free_rate
 
     trading_days_per_year = 252
     risk_free_rate_log_daily = np.log(1 + risk_free_rate) / trading_days_per_year
@@ -219,7 +215,7 @@ def apply_risk_constraints(
 ) -> pd.Series:
     """
     Given a merged (unconstrained) set of weights, re-optimize using risk constraints.
-    Uses Optuna to adaptively adjust constraints based on `config.options.risk_priority`.
+    Uses Optuna to adaptively adjust constraints based on `config.risk_priority`.
 
     Args:
         initial_weights (pd.Series): Initial portfolio weights.
@@ -234,7 +230,7 @@ def apply_risk_constraints(
     initial_weights_np = initial_weights.values
 
     logger.info(
-        f"Applying risk constraints: vol_limit={config.options["portfolio_max_vol"]}, cvar_limit={config.options["portfolio_max_cvar"]}"
+        f"Applying risk constraints: vol_limit={config.portfolio_max_vol}, cvar_limit={config.portfolio_max_cvar}"
     )
 
     final_w = adaptive_risk_constraints(config, risk_estimates, initial_weights_np)

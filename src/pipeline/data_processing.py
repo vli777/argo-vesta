@@ -10,7 +10,10 @@ from correlation.hdbscan_clustering import (
     get_cluster_labels,
 )
 from pipeline.process_symbols import process_symbols
-from correlation.networkx_clustering import filter_correlated_groups_mst, get_cluster_labels_mst
+from correlation.networkx_clustering import (
+    filter_correlated_groups_mst,
+    get_cluster_labels_mst,
+)
 from correlation.spectral_clustering import (
     filter_correlated_groups_spectral,
     get_cluster_labels_spectral,
@@ -116,8 +119,8 @@ def preprocess_data(
     if clustering_method == "spectral":
         filter_correlated_groups_spectral(
             returns_df=returns_df,
-            risk_free_rate=config.options["risk_free_rate"],
-            plot=config.options["plot_clustering"],
+            risk_free_rate=config.risk_free_rate,
+            plot=config.plot_clustering,
         )
 
     # Create asset cluster map using the selected method.
@@ -125,16 +128,14 @@ def preprocess_data(
         asset_cluster_map = get_cluster_labels_spectral(
             returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
         )
-    elif clustering_method == 'mst':
+    elif clustering_method == "mst":
         """
         MST community detection is generally parameter-free in this context. Unlike spectral clustering
         —which requires tuning parameters like gamma and the number of clusters—the MST method builds a
         complete graph from your distance matrix, computes its minimum spanning tree, and then applies a
         parameter-free greedy modularity algorithm for community detection.
         """
-        asset_cluster_map = get_cluster_labels_mst(  
-             returns_df=returns_df
-        )
+        asset_cluster_map = get_cluster_labels_mst(returns_df=returns_df)
     else:  # fallback to hdbscan
         asset_cluster_map = get_cluster_labels(
             returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
@@ -143,22 +144,25 @@ def preprocess_data(
     filtered_returns_df = returns_df
 
     # Apply anomaly filter if configured
-    if config.options["use_anomaly_filter"]:
+    if config.use_anomaly_filter:
         logger.debug("Applying anomaly filter.")
         valid_symbols = remove_anomalous_stocks(
             returns_df=returns_df,
             reoptimize=False,
-            plot=config.options["plot_anomalies"],
+            plot=config.plot_anomalies,
         )
         filtered_returns_df = returns_df[valid_symbols]
     else:
         valid_symbols = returns_df.columns.tolist()
 
     # Apply decorrelation filter if enabled
-    if config.options["use_decorrelation"]:
+    if config.use_decorrelation:
         logger.info("Filtering correlated assets...")
         valid_symbols = filter_correlated_assets(
-            filtered_returns_df, config, asset_cluster_map
+            filtered_returns_df,
+            config,
+            asset_cluster_map,
+            clustering_method=clustering_method,
         )
         valid_symbols = [
             symbol for symbol in valid_symbols if symbol in filtered_returns_df.columns
@@ -172,11 +176,10 @@ def filter_correlated_assets(
     returns_df: pd.DataFrame,
     config: Config,
     asset_cluster_map: Dict[str, int],
-    clustering_method: str = "spectral",
+    clustering_method: str = "mst",
 ) -> List[str]:
     """
     Apply decorrelation filtering based on asset clusters.
-    This function attempts spectral clustering first (if configured) and falls back to HDBSCAN if needed.
 
     Args:
         returns_df (pd.DataFrame): DataFrame with asset returns.
@@ -188,32 +191,30 @@ def filter_correlated_assets(
     """
     original_symbols = list(returns_df.columns)
     trading_days_per_year = 252
-    risk_free_rate_log_daily = (
-        np.log(1 + config.options["risk_free_rate"]) / trading_days_per_year
-    )
+    risk_free_rate_log_daily = np.log(1 + config.risk_free_rate) / trading_days_per_year
 
     try:
         if clustering_method == "spectral":
             decorrelated_tickers = filter_correlated_groups_spectral(
                 returns_df=returns_df,
                 risk_free_rate=risk_free_rate_log_daily,
-                plot=config.options.get("plot_clustering", False),
-                objective=config.options.get("optimization_objective", "sharpe"),
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
             )
         elif clustering_method == "mst":
             decorrelated_tickers = filter_correlated_groups_mst(
                 returns_df=returns_df,
                 risk_free_rate=risk_free_rate_log_daily,
-                plot=config.options.get("plot_clustering", False),
-                objective=config.options.get("optimization_objective", "sharpe"),
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
             )
         elif clustering_method == "hdbscan":
             decorrelated_tickers = filter_correlated_groups_hdbscan(
                 returns_df=returns_df,
                 asset_cluster_map=asset_cluster_map,
                 risk_free_rate=risk_free_rate_log_daily,
-                plot=config.options.get("plot_clustering", False),
-                objective=config.options.get("optimization_objective", "sharpe"),
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
             )
         else:
             raise ValueError(f"Unknown clustering method: {clustering_method}")
@@ -231,8 +232,8 @@ def filter_correlated_assets(
                 returns_df=returns_df,
                 asset_cluster_map=asset_cluster_map,
                 risk_free_rate=risk_free_rate_log_daily,
-                plot=config.options.get("plot_clustering", False),
-                objective=config.options.get("optimization_objective", "sharpe"),
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
             )
             valid_symbols = [
                 symbol for symbol in original_symbols if symbol in decorrelated_tickers
@@ -283,7 +284,7 @@ def perform_post_processing(
     )
 
     # Normalize weights. (normalize_weights is used elsewhere so we leave it unchanged)
-    normalized_weights = normalize_weights(sorted_weights, config.options["min_weight"])
+    normalized_weights = normalize_weights(sorted_weights, config.min_weight)
     # logger.debug(f"\nNormalized avg weights: {normalized_weights}")
 
     # Ensure output is a dictionary.

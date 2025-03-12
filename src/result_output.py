@@ -60,8 +60,8 @@ def output(
 
     # Trim if we have more assets than allowed
     portfolio_max_size = estimate_optimal_num_assets(
-        vol_limit=config.options["portfolio_max_vol"],
-        portfolio_max_size=config.options["portfolio_max_size"],
+        vol_limit=config.portfolio_max_vol,
+        portfolio_max_size=config.portfolio_max_size,
     ) or len(clean_weights)
 
     if len(clean_weights) > portfolio_max_size:
@@ -82,13 +82,9 @@ def output(
     # from scipy.stats import skew
     # print("Portfolio return skew:", skew(portfolio_returns))
 
-    sharpe = sharpe_ratio(
-        portfolio_returns, risk_free_rate=config.options["risk_free_rate"]
-    )
+    sharpe = sharpe_ratio(portfolio_returns, risk_free_rate=config.risk_free_rate)
     # kappa = kappa_ratio(portfolio_returns, risk_free_rate=config.risk_free_rate)
-    omega = omega_ratio(
-        portfolio_returns, risk_free_rate=config.options["risk_free_rate"]
-    )
+    omega = omega_ratio(portfolio_returns, risk_free_rate=config.risk_free_rate)
     volatility = portfolio_volatility(portfolio_returns)
     cvar = conditional_var(portfolio_returns)
     max_dd = max_drawdown(portfolio_cumulative_returns)
@@ -123,7 +119,7 @@ def output(
                 portfolio_returns=portfolio_returns,
                 market_returns=market_returns,
                 weights=clean_weights,
-                risk_free_rate=config.options["risk_free_rate"],
+                risk_free_rate=config.risk_free_rate,
             )
         else:
             print(f"Warning: Market data for {market_file} is empty after filtering.")
@@ -222,7 +218,7 @@ def compute_performance_results(
         end_date=end_date,
         allocation_weights=allocation_weights,
         inputs=combined_input_files,
-        optimization_model=f"{combined_models} ENSEMBLE: {config.options["optimization_objective"]}",
+        optimization_model=f"{combined_models} ENSEMBLE: {config.optimization_objective}",
         time_period=sorted_time_periods[0],
         config=config,
     )
