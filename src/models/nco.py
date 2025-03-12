@@ -40,7 +40,6 @@ def nested_clustered_optimization(
     mu: Optional[pd.Series] = None,
     returns: Optional[pd.DataFrame] = None,
     objective: str = "sharpe",
-    max_clusters: int = 50,
     min_weight: float = 0.0,
     max_weight: float = 1.0,
     allow_short: bool = False,
@@ -61,8 +60,7 @@ def nested_clustered_optimization(
         cov (pd.DataFrame): Covariance matrix of asset returns.
         mu (Optional[pd.Series]): Expected returns.
         returns (Optional[pd.DataFrame]): Historical returns (time series) with assets as columns.
-        objective (str): Optimization objective.
-        max_clusters (int): Maximum number of clusters.
+        objective (str): Optimization objective.        
         min_weight (float): Minimum weight per asset.
         max_weight (float): Maximum weight per asset.
         allow_short (bool): Allow short positions.
@@ -106,7 +104,7 @@ def nested_clustered_optimization(
 
     # --- Cluster assets ---
     corr = cov_to_corr(cov)
-    labels = cluster_kmeans(corr, max_clusters)
+    labels = cluster_kmeans(corr, len(valid_assets))
     unique_clusters = np.unique(labels)
 
     # --- Intra-cluster optimization ---
