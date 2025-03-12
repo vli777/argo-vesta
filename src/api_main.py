@@ -92,11 +92,10 @@ def inference(req: PipelineRequest):
 
     # Update options with any API-provided overrides.
     if req.options:
-        config_obj.options.update(req.options)
+        config_obj.update_options(req.options.model_dump())
 
     try:
         pipeline_args = req.model_dump()
-        # Pass the Config object to the pipeline.
         pipeline_args["config"] = config_obj
         result = pipeline_runner(**pipeline_args)
     except TypeError as te:

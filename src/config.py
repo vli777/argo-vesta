@@ -3,18 +3,21 @@
 
 import os
 import yaml
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import List, Dict, Any, Optional
-
 
 @dataclass
 class Config:
-    # Core (non-API) parameters
+    # Core (non-overridable) parameters:
     data_dir: str
     input_files_dir: str
     input_files: List[str]
-
+    models: Dict[str, List[str]]
     download: bool
+    test_mode: bool
+    test_data_visible_pct: float
+
+    # Overridable (options) parameters:
     min_weight: float
     max_weight: float
     portfolio_max_size: Optional[int]
@@ -24,7 +27,6 @@ class Config:
     risk_free_rate: float
     allow_short: bool
     max_gross_exposure: float
-
     plot_daily_returns: bool
     plot_cumulative_returns: bool
     plot_contribution: bool
@@ -32,25 +34,22 @@ class Config:
     plot_clustering: bool
     plot_reversion: bool
     plot_optimization: bool
-
     use_anomaly_filter: bool
     use_decorrelation: bool
     use_reversion: bool
     reversion_type: Optional[str]
-
     optimization_objective: Optional[str]
     use_global_optimization: bool
     global_optimization_type: Optional[str]
 
-    test_mode: bool
-    test_data_visible_pct: float
+    options: Dict[str, Any] = field(init=False)
+    _overridable_keys: set = field(init=False, repr=False)
+    _core_keys: set = field(init=False, repr=False)
 
-    models: Dict[str, List[str]] = field(
-        default_factory=lambda: {"1.00": ["nested_clustering"]}
-    )
-    # API options override
-    options: Dict[str, Any] = field(default_factory=dict)
-
+    def __post_init__(self):
+        # Initialize options so that asdict() can find it.
+        self.options = {}
+        
     @classmethod
     def from_yaml(cls, config_file: str) -> "Config":
         if not os.path.exists(config_file):
@@ -59,10 +58,11 @@ class Config:
         with open(config_file, "r") as f:
             config_dict = yaml.safe_load(f) or {}
 
-        # Centralize all default values here.
+        # Defaults for all parameters.
         defaults = {
             "download": False,
-            "min_weight": 0.01,
+            "input_files": [], 
+            "min_weight": 0.00,
             "max_weight": 1.0,
             "portfolio_max_size": None,
             "portfolio_max_vol": None,
@@ -81,33 +81,65 @@ class Config:
             "use_anomaly_filter": False,
             "use_decorrelation": False,
             "use_reversion": False,
-            "reversion_type": None,  # If use_reversion is enabled, default later to "z"
+            "reversion_type": None,  
             "optimization_objective": "sharpe",
             "use_global_optimization": False,
             "global_optimization_type": None,
             "test_mode": False,
             "test_data_visible_pct": 0.1,
             "models": {"1.00": ["nested_clustering"]},
-            "options": {},
         }
-        # Merge defaults with the loaded config (the YAML values override the defaults)
-        merged = {**defaults, **config_dict}
 
-        # Required keys check
-        if "data_dir" not in merged:
+        # Split the YAML into two parts:
+        # - Anything at the top level (except "options") is core.
+        # - The "options" group contains keys that can be overridden.
+        core_yaml = {k: v for k, v in config_dict.items() if k != "options" and v is not None}
+        options_yaml = {k: v for k, v in config_dict.get("options", {}).items() if v is not None}
+
+        # Build the final configuration:
+        # Start with defaults, then let core YAML override defaults for core keys,
+        # and finally let the options YAML override defaults for overridable keys.
+        final_config = {**defaults, **core_yaml, **options_yaml}
+
+        # Instantiate the Config object.
+        instance = cls(**final_config)
+
+        # Ensure required core fields are present.
+        if "data_dir" not in final_config:
             raise ValueError("data_dir must be specified in the configuration file")
-        if "input_files" not in merged:
-            raise ValueError("input_files must be specified in the configuration file")
+        
+        # Set a default for input_files_dir if not provided.
+        instance.input_files_dir = final_config.get("input_files_dir", "watchlists")
+        os.makedirs(instance.data_dir, exist_ok=True)
+        os.makedirs(instance.input_files_dir, exist_ok=True)
 
-        # Ensure input_files_dir is set
-        merged["input_files_dir"] = merged.get("input_files_dir", "watchlists")
+        # Set default reversion_type if used.
+        if instance.use_reversion and instance.reversion_type is None:
+            instance.reversion_type = "z"
+            
+        # Set default global_optimization_type if used.
+        if instance.use_global_optimization and instance.global_optimization_type is None:
+            instance.global_optimization_type = "annealing"
 
-        # Create directories if needed
-        os.makedirs(merged["data_dir"], exist_ok=True)
-        os.makedirs(merged["input_files_dir"], exist_ok=True)
+        # Record which keys are overridable (from the YAML's options block).
+        instance._overridable_keys = set(options_yaml.keys())
+        # All other keys in the final configuration are considered core.
+        instance._core_keys = set(final_config.keys()) - instance._overridable_keys
 
-        # Set reversion_type default if use_reversion is enabled
-        if merged.get("use_reversion") and merged.get("reversion_type") is None:
-            merged["reversion_type"] = "z"
+        # Build the options dictionary from only the overridable parameters.
+        instance.options = {
+            k: v for k, v in asdict(instance).items() if k in instance._overridable_keys
+        }
+        return instance
 
-        return cls(**merged)
+    def update_options(self, overrides: Dict[str, Any]) -> None:
+        """
+        Update only the overridable parameters (those originally specified in YAML's "options" group).
+        """
+        for key, value in overrides.items():
+            if key in self._overridable_keys:
+                setattr(self, key, value)
+        # Refresh the options dictionary.
+        self.options = {
+            k: v for k, v in asdict(self).items() if k in self._overridable_keys
+        }
