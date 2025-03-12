@@ -10,7 +10,7 @@ from correlation.hdbscan_clustering import (
     get_cluster_labels,
 )
 from pipeline.process_symbols import process_symbols
-from correlation.networkx_clustering import filter_correlated_groups_mst, get_cluster_labels_mst, mst_community_detection
+from correlation.networkx_clustering import filter_correlated_groups_mst, get_cluster_labels_mst
 from correlation.spectral_clustering import (
     filter_correlated_groups_spectral,
     get_cluster_labels_spectral,
@@ -101,7 +101,7 @@ def calculate_returns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def preprocess_data(
-    returns_df: pd.DataFrame, config: Config, clustering_method: str = "spectral"
+    returns_df: pd.DataFrame, config: Config, clustering_method: str = "mst"
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Preprocess the returns DataFrame by applying optional anomaly and decorrelation filters.

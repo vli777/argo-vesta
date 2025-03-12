@@ -8,7 +8,7 @@ from models.optimizer_utils import strategy_performance_metrics, get_objective_w
 from correlation.correlation_utils import compute_distance_matrix
 from correlation.hdbscan_optimize import run_hdbscan_decorrelation_study
 from correlation.plot_clusters import visualize_clusters_tsne, visualize_clusters_umap
-from src.correlation.cluster_utils import get_clusters_top_performers
+from correlation.cluster_utils import get_clusters_top_performers
 from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_pickle
 from utils.logger import logger
 
