@@ -6,6 +6,7 @@ import yaml
 from dataclasses import asdict, dataclass, field
 from typing import List, Dict, Any, Optional
 
+
 @dataclass
 class Config:
     # Core (non-overridable) parameters:
@@ -49,7 +50,7 @@ class Config:
     def __post_init__(self):
         # Initialize options so that asdict() can find it.
         self.options = {}
-        
+
     @classmethod
     def from_yaml(cls, config_file: str) -> "Config":
         if not os.path.exists(config_file):
@@ -61,7 +62,7 @@ class Config:
         # Defaults for all parameters.
         defaults = {
             "download": False,
-            "input_files": [], 
+            "input_files": [],
             "min_weight": 0.00,
             "max_weight": 1.0,
             "portfolio_max_size": None,
@@ -81,7 +82,7 @@ class Config:
             "use_anomaly_filter": False,
             "use_decorrelation": False,
             "use_reversion": False,
-            "reversion_type": None,  
+            "reversion_type": None,
             "optimization_objective": "sharpe",
             "use_global_optimization": False,
             "global_optimization_type": None,
@@ -93,8 +94,12 @@ class Config:
         # Split the YAML into two parts:
         # - Anything at the top level (except "options") is core.
         # - The "options" group contains keys that can be overridden.
-        core_yaml = {k: v for k, v in config_dict.items() if k != "options" and v is not None}
-        options_yaml = {k: v for k, v in config_dict.get("options", {}).items() if v is not None}
+        core_yaml = {
+            k: v for k, v in config_dict.items() if k != "options" and v is not None
+        }
+        options_yaml = {
+            k: v for k, v in config_dict.get("options", {}).items() if v is not None
+        }
 
         # Build the final configuration:
         # Start with defaults, then let core YAML override defaults for core keys,
@@ -107,7 +112,7 @@ class Config:
         # Ensure required core fields are present.
         if "data_dir" not in final_config:
             raise ValueError("data_dir must be specified in the configuration file")
-        
+
         # Set a default for input_files_dir if not provided.
         instance.input_files_dir = final_config.get("input_files_dir", "watchlists")
         os.makedirs(instance.data_dir, exist_ok=True)
@@ -116,9 +121,12 @@ class Config:
         # Set default reversion_type if used.
         if instance.use_reversion and instance.reversion_type is None:
             instance.reversion_type = "z"
-            
+
         # Set default global_optimization_type if used.
-        if instance.use_global_optimization and instance.global_optimization_type is None:
+        if (
+            instance.use_global_optimization
+            and instance.global_optimization_type is None
+        ):
             instance.global_optimization_type = "annealing"
 
         # Record which keys are overridable (from the YAML's options block).
@@ -143,3 +151,9 @@ class Config:
         self.options = {
             k: v for k, v in asdict(self).items() if k in self._overridable_keys
         }
+
+    def __getitem__(self, key: str) -> Any:
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key)
