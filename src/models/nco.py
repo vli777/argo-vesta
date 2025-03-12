@@ -218,23 +218,25 @@ def nested_clustered_optimization(
         return pd.Series(dtype=float)
 
     final_weights /= final_weights.sum()
-    
+
     if not isinstance(final_weights, pd.Series):
         final_weights = pd.Series(final_weights, index=intra_weights.index)
 
-    logger.info(f"Combined cluster weights:\n{final_weights}")
+    # logger.info(f"Combined cluster weights:\n{final_weights}")
 
     # --- Build Overall Search History ---
+    # Use only the valid clusters from intra_weights
+    reduced_intra = intra_weights[valid_clusters]
     overall_search_history = []
     # For each candidate inter-cluster weight vector, compute overall candidate.
     for candidate in inter_search_history:
         candidate = np.array(candidate)
-        # Ensure candidate length equals number of clusters (which should match intra_weights' columns)
-        if candidate.shape[0] != intra_weights.shape[1]:
+        # Pad candidate if needed so that its length equals number of valid clusters
+        if candidate.shape[0] != reduced_intra.shape[1]:
             candidate = np.pad(
-                candidate, (0, intra_weights.shape[1] - candidate.shape[0]), "constant"
+                candidate, (0, reduced_intra.shape[1] - candidate.shape[0]), "constant"
             )
-        overall_candidate = (intra_weights * candidate).sum(axis=1)
+        overall_candidate = (reduced_intra * candidate).sum(axis=1)
         overall_search_history.append(overall_candidate.values)
     overall_search_history = np.array(overall_search_history)
     # Ensure overall_search_history is 2D.
@@ -246,13 +248,15 @@ def nested_clustered_optimization(
         overall_search_history = np.array(
             [
                 (
-                    intra_weights *
-                    np.pad(
+                    intra_weights
+                    * np.pad(
                         np.array(candidate),
                         (0, intra_weights.shape[1] - np.array(candidate).shape[0]),
-                        mode="constant"
+                        mode="constant",
                     )
-                ).sum(axis=1).values
+                )
+                .sum(axis=1)
+                .values
                 for candidate in inter_search_history
             ]
         )
@@ -273,7 +277,7 @@ def nested_clustered_optimization(
         except Exception as e:
             logger.warning("Plotting failed: " + str(e))
 
-    logger.info(f"Final optimized weights:\n{final_weights}")
+    # logger.info(f"Final optimized weights:\n{final_weights}")
 
     return final_weights
 
