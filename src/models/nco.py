@@ -269,7 +269,9 @@ def nested_clustered_optimization(
                         w, mu.to_numpy(), cov.to_numpy()
                     ),
                     grid_resolution=120,
-                    title="Global Optimization Contour",
+                    title="Global Optimization Contour via {}".format(
+                        "Dual Annealing" if use_annealing else "Stochastic Diffusion"
+                    ),
                     flip_objective=True,
                 ).show()
             else:

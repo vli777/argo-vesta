@@ -310,9 +310,6 @@ def optimize_weights_objective(
         )
         if local_result.success:
             initial_candidate = local_result.x
-            logger.info(
-                "Local solver succeeded; candidate obtained for global expansion."
-            )
         else:
             logger.warning(
                 "Local solver did not converge; using init_weights as candidate."
@@ -350,7 +347,6 @@ def optimize_weights_objective(
             return result.x
         else:
             logger.warning("Dual annealing optimization failed: " + result.message)
-            logger.info("Falling back to standard local solver.")
 
     if use_diffusion:
         cb = callback if callback is not None else (lambda x, convergence: False)
@@ -372,7 +368,6 @@ def optimize_weights_objective(
             logger.warning(
                 "Stochastic diffusion optimization did not converge: " + result.message
             )
-            logger.info("Falling back to standard local solver.")
 
     # --- Standard Local Solver Branch ---
     result = minimize(
