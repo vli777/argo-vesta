@@ -22,16 +22,66 @@ def cov_to_corr(cov):
     return corr
 
 
-def default_intra_callback(x, f, *args, cl, history_dict):
+def unified_callback(x, *args, history_list, overall_history):
     """
-    A default callback that appends the candidate x to the history for cluster cl.
+    A unified callback that appends the candidate x to both the local history list
+    and the global overall history.
     """
-    history_dict.setdefault(cl, []).append(x.copy())
+    # If additional arguments are provided, you can extract f if needed:
+    if args:
+        f = args[0]
+    overall_history.append(np.copy(x))
+    history_list.append(np.copy(x))
     return False
 
 
-def default_inter_callback(x, f, *args, history_list):
-    history_list.append(x.copy())
+def default_intra_callback(x, *args, cl, history_dict, overall_history):
+    """
+    A default callback that appends the candidate x to the history for cluster cl,
+    and also records it in the global overall history.
+    """
+    if args:
+        f = args[0]
+    history_dict.setdefault(cl, []).append(np.copy(x))
+    overall_history.append(np.copy(x))
+    return False
+
+
+def default_inter_callback(x, *args, history_list, overall_history):
+    """
+    Callback for inter-cluster optimization, recording the candidate x in both
+    the inter-cluster history and the global overall history.
+    """
+    if args:
+        f = args[0]
+    overall_history.append(np.copy(x))
+    history_list.append(np.copy(x))
+    return False
+
+
+def local_solver_callback(xk, *args, history_list, overall_history):
+    """
+    Callback for the local solver optimization that records the candidate xk
+    in both the provided local history and the global overall history.
+    """
+    overall_history.append(np.copy(xk))
+    history_list.append(np.copy(xk))
+    return False
+
+
+def combined_intra_callback(x, *args, cl, history_dict, local_history, overall_history):
+    """
+    Combined callback for intra-cluster optimization that records the candidate x
+    in the cluster-specific history, the local solver history, and the global overall history.
+
+    This function supports both global optimization (which may pass additional arguments)
+    and local optimization (which may only pass x).
+    """
+    if args:
+        f = args[0]
+    history_dict.setdefault(cl, []).append(np.copy(x))
+    local_history.append(np.copy(x))
+    overall_history.append(np.copy(x))
     return False
 
 
@@ -60,7 +110,7 @@ def nested_clustered_optimization(
         cov (pd.DataFrame): Covariance matrix of asset returns.
         mu (Optional[pd.Series]): Expected returns.
         returns (Optional[pd.DataFrame]): Historical returns (time series) with assets as columns.
-        objective (str): Optimization objective.        
+        objective (str): Optimization objective.
         min_weight (float): Minimum weight per asset.
         max_weight (float): Maximum weight per asset.
         allow_short (bool): Allow short positions.
@@ -77,18 +127,18 @@ def nested_clustered_optimization(
         pd.Series: Final portfolio weights.
     """
     manager = Manager()
+    # Create a global manager list to store all candidates from parallel optimization runs.
+    overall_history = manager.list()
 
     # Filter assets with sufficient historical data
+    valid_assets = cov.index
     if returns is not None:
         valid_assets = returns.columns[
             returns.notna().sum(axis=0) >= (returns.shape[0] * 0.5)
         ]
         returns = returns[valid_assets]
         cov = cov.loc[valid_assets, valid_assets]
-        if mu is not None:
-            mu = mu.reindex(valid_assets).fillna(0)
-    else:
-        valid_assets = cov.index
+        mu = mu.reindex(valid_assets).fillna(0) if mu is not None else None
 
     if len(valid_assets) < 2:
         logger.warning(
@@ -111,7 +161,8 @@ def nested_clustered_optimization(
     intra_weights = pd.DataFrame(
         0.0, index=cov.index, columns=unique_clusters, dtype=float
     )
-    intra_search_histories = manager.dict()
+    intra_search_histories = manager.dict()  # Store candidates per cluster.
+    intra_local_histories = manager.dict()  # Store local solver history per cluster.
 
     for cluster in unique_clusters:
         cluster_assets = cov.index[labels == cluster]
@@ -120,8 +171,13 @@ def nested_clustered_optimization(
         cluster_returns = returns[cluster_assets] if returns is not None else None
 
         intra_search_histories[cluster] = []
-        intra_cb = partial(
-            default_intra_callback, cl=cluster, history_dict=intra_search_histories
+        intra_local_histories[cluster] = manager.list()
+        combined_cb = partial(
+            combined_intra_callback,
+            cl=cluster,
+            history_dict=intra_search_histories,
+            local_history=intra_local_histories[cluster],
+            overall_history=overall_history,
         )
 
         weights = optimize_weights_objective(
@@ -138,26 +194,16 @@ def nested_clustered_optimization(
             target_sum=target_sum,
             use_annealing=use_annealing,
             use_diffusion=use_diffusion,
-            callback=intra_cb,
+            callback=combined_cb,
         )
 
         if np.isscalar(weights):
             weights = np.repeat(weights, len(cluster_assets))
-        elif hasattr(weights, "__len__"):
-            if len(weights) == 1 and len(cluster_assets) > 1:
-                weights = np.repeat(weights, len(cluster_assets))
-            elif len(weights) != len(cluster_assets):
-                raise ValueError(
-                    f"Mismatch in cluster {cluster}: expected {len(cluster_assets)} weights, got {len(weights)}."
-                )
-        else:
-            raise ValueError(f"Unexpected weights type in cluster {cluster}.")
-
         intra_weights.loc[cluster_assets, cluster] = weights
 
-        # logger.info(
-        #     f"Intra-cluster weights before global optimization:\n{intra_weights}"
-        # )
+        logger.info(
+            f"Intra-cluster weights before global optimization:\n{intra_weights}"
+        )
 
     # --- Inter-cluster optimization ---
     valid_clusters = intra_weights.columns[intra_weights.sum(axis=0) > 1e-6]
@@ -180,11 +226,12 @@ def nested_clustered_optimization(
     else:
         reduced_returns = None
 
-    # logger.info(f"Reduced covariance matrix:\n{reduced_cov}")
-    # logger.info(f"Reduced expected returns (mu):\n{reduced_mu}")
-
     inter_search_history = manager.list()
-    inter_cb = partial(default_inter_callback, history_list=inter_search_history)
+    inter_cb = partial(
+        unified_callback,
+        history_list=inter_search_history,
+        overall_history=overall_history,
+    )
 
     inter_weights = pd.Series(
         optimize_weights_objective(
@@ -206,7 +253,7 @@ def nested_clustered_optimization(
         index=valid_clusters,
     )
 
-    # logger.info(f"Inter-cluster optimized weights:\n{inter_weights}")
+    logger.info(f"Inter-cluster optimized weights:\n{inter_weights}")
 
     # --- Combine intra- and inter-cluster weights to get final portfolio weights ---
     final_weights = intra_weights.mul(inter_weights, axis=1).sum(axis=1)
@@ -220,55 +267,45 @@ def nested_clustered_optimization(
     if not isinstance(final_weights, pd.Series):
         final_weights = pd.Series(final_weights, index=intra_weights.index)
 
-    # logger.info(f"Combined cluster weights:\n{final_weights}")
+    logger.info(f"Combined cluster weights:\n{final_weights}")
 
-    # --- Build Overall Search History ---
-    # Use only the valid clusters from intra_weights
+    # --- Build Overall Search History for plotting ---
+    # Instead of converting overall_history (which is inhomogeneous) to an array,
+    # we use the inter_search_history candidates (which are homogeneous in dimension)
+    # and transform them into the final portfolio space.
     reduced_intra = intra_weights[valid_clusters]
     overall_search_history = []
-    # For each candidate inter-cluster weight vector, compute overall candidate.
     for candidate in inter_search_history:
         candidate = np.array(candidate)
-        # Pad candidate if needed so that its length equals number of valid clusters
+        # Pad candidate if needed so that its length equals the number of valid clusters
         if candidate.shape[0] != reduced_intra.shape[1]:
             candidate = np.pad(
                 candidate, (0, reduced_intra.shape[1] - candidate.shape[0]), "constant"
             )
+        # Combine with intra cluster weights to form a candidate for final weights.
         overall_candidate = (reduced_intra * candidate).sum(axis=1)
         overall_search_history.append(overall_candidate.values)
     overall_search_history = np.array(overall_search_history)
-    # Ensure overall_search_history is 2D.
     if overall_search_history.size == 0:
         overall_search_history = final_weights.values.reshape(1, -1)
 
     # --- Plot Overall Global Optimization Contour ---
     if plot:
-        overall_search_history = np.array(
-            [
-                (
-                    intra_weights
-                    * np.pad(
-                        np.array(candidate),
-                        (0, intra_weights.shape[1] - np.array(candidate).shape[0]),
-                        mode="constant",
-                    )
-                )
-                .sum(axis=1)
-                .values
-                for candidate in inter_search_history
-            ]
-        )
         try:
             if overall_search_history.size > 0:
+                print(overall_search_history)
+                print("\n", final_weights.values)
                 plot_global_optimization(
                     search_history=overall_search_history,
                     final_solution=final_weights.values,
                     objective_function=lambda w: sharpe_objective(
                         w, mu.to_numpy(), cov.to_numpy()
                     ),
-                    grid_resolution=120,
-                    title="Global Optimization Contour via {}".format(
-                        "Dual Annealing" if use_annealing else "Stochastic Diffusion"
+                    grid_resolution=90,
+                    title="Global Optimization Contour {}".format(
+                        "via Dual Annealing"
+                        if use_annealing
+                        else "via Stochastic Diffusion"
                     ),
                     flip_objective=True,
                 ).show()
