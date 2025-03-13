@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Any, Callable, Optional, Union, Dict
+from typing import Any, Callable, List, Optional, Tuple, Union, Dict
 from scipy.optimize import minimize
 import pyomo.environ as pyo
 from pyomo.opt import TerminationCondition, SolverStatus
@@ -26,6 +26,168 @@ from models.scipy_objective_models import (
 )
 
 from utils import logger
+
+
+def build_constraints_and_bounds(
+    cov: pd.DataFrame,
+    returns: Optional[pd.DataFrame],
+    mu: Optional[Union[pd.Series, np.ndarray]],
+    target_sum: float,
+    cvar_limit: Optional[float],
+    vol_limit: Optional[float],
+    allow_short: bool,
+    max_gross_exposure: float,
+    apply_constraints: bool,
+    min_weight: Optional[float],
+    max_weight: Optional[float],
+    alpha: float,
+) -> Tuple[
+    List[Tuple[float, float]],
+    List[Dict],
+    np.ndarray,
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+]:
+    n = cov.shape[0]
+    max_weight = float(max_weight) if max_weight is not None else 1.0
+    # Ensure max_weight is at least equal to equal allocation.
+    max_weight = max(1.0 / n, max_weight)
+    lower_bound = (
+        -max_weight
+        if allow_short
+        else (float(min_weight) if min_weight is not None else 0.0)
+    )
+    bounds = [(lower_bound, max_weight)] * n
+
+    cov_arr = cov.to_numpy() if isinstance(cov, pd.DataFrame) else cov
+    returns_arr = (
+        returns.to_numpy()
+        if (returns is not None and isinstance(returns, pd.DataFrame))
+        else returns
+    )
+    mu_arr = mu.to_numpy() if (mu is not None and isinstance(mu, pd.Series)) else mu
+
+    constraints = [
+        {
+            "type": "eq",
+            "fun": partial(sum_constraint_fn, target_sum=target_sum),
+        }
+    ]
+
+    if apply_constraints:
+        if cvar_limit is not None:
+            constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": partial(
+                        cvar_constraint_fn,
+                        returns_arr=returns_arr,
+                        alpha=alpha,
+                        cvar_limit=cvar_limit,
+                    ),
+                }
+            )
+        if vol_limit is not None:
+            constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": partial(
+                        vol_constraint_fn, cov_arr=cov_arr, vol_limit=vol_limit
+                    ),
+                }
+            )
+    if allow_short:
+        constraints.append(
+            {
+                "type": "ineq",
+                "fun": partial(
+                    gross_exposure_fn, max_gross_exposure=max_gross_exposure
+                ),
+            }
+        )
+    return bounds, constraints, cov_arr, returns_arr, mu_arr
+
+
+def run_global_optimization(
+    chosen_obj: Callable,
+    init_weights: np.ndarray,
+    bounds: List[Tuple[float, float]],
+    constraints: List[Dict],
+    solver_method: str,
+    target_sum: float,
+    penalty_weight: float,
+    use_annealing: bool,
+    use_diffusion: bool,
+    callback: Optional[Callable] = None,
+) -> Tuple[Optional[np.ndarray], np.ndarray]:
+    local_result = minimize(
+        chosen_obj,
+        init_weights,
+        method=solver_method,
+        bounds=bounds,
+        constraints=constraints,
+        options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
+    )
+    if local_result.success:
+        candidate = local_result.x
+    else:
+        logger.warning(
+            "Local solver did not converge; using init_weights as candidate."
+        )
+        candidate = init_weights
+
+    # Configure the penalized objective.
+    penalty_function = partial(
+        penalty,
+        penalty_weight=penalty_weight,
+        constraints=constraints,
+        target_sum=target_sum,
+    )
+    penalized_obj = partial(
+        penalized_objective,
+        chosen_obj=chosen_obj,
+        penalty=penalty_function,
+    )
+
+    if use_annealing:
+        cb = callback if callback is not None else (lambda x, f, context: False)
+        result = multi_seed_dual_annealing(
+            penalized_obj,
+            bounds=bounds,
+            num_runs=3,
+            maxiter=10000,
+            initial_temp=10000,
+            visit=10,
+            accept=-10.0,
+            callback=cb,
+            # initial_candidate=candidate,
+        )
+        if result.success:
+            return result.x, candidate
+        else:
+            logger.warning("Dual annealing optimization failed: " + result.message)
+    elif use_diffusion:
+        cb = callback if callback is not None else (lambda x, convergence: False)
+        result = multi_seed_diffusion(
+            penalized_obj,
+            bounds=bounds,
+            num_runs=3,
+            popsize=15,
+            maxiter=10000,
+            mutation=(0.5, 1),
+            recombination=0.7,
+            callback=cb,
+            # initial_candidate=candidate,
+        )
+        if result.success:
+            return result.x, candidate
+        else:
+            logger.warning(
+                "Stochastic diffusion optimization did not converge: " + result.message
+            )
+
+    # Global method was selected but did not succeed.
+    return None, candidate
 
 
 def optimize_weights_objective(
@@ -86,68 +248,22 @@ def optimize_weights_objective(
         np.ndarray: Optimized portfolio weights.
     """
     n = cov.shape[0]
-    max_weight = float(max_weight) if max_weight is not None else 1.0
-    # Ensure max_weight is at least equal to equal allocation
-    max_weight = max(1.0 / n, max_weight)
-    # Set lower bound based on whether shorting is allowed.
-    lower_bound = (
-        -max_weight
-        if allow_short
-        else (float(min_weight) if min_weight is not None else 0.0)
+    # Build bounds, constraints, and precomputed arrays.
+    bounds, constraints, cov_arr, returns_arr, mu_arr = build_constraints_and_bounds(
+        cov=cov,
+        returns=returns,
+        mu=mu,
+        target_sum=target_sum,
+        cvar_limit=cvar_limit,
+        vol_limit=vol_limit,
+        allow_short=allow_short,
+        max_gross_exposure=max_gross_exposure,
+        apply_constraints=apply_constraints,
+        min_weight=min_weight,
+        max_weight=max_weight,
+        alpha=alpha,
     )
-    bounds = [(lower_bound, max_weight)] * n
-
-    # Precompute numpy arrays from cov and returns to avoid repeated conversions.
-    cov_arr = cov.to_numpy() if isinstance(cov, pd.DataFrame) else cov
-    if returns is not None:
-        returns_arr = (
-            returns.to_numpy() if isinstance(returns, pd.DataFrame) else returns
-        )
-    else:
-        returns_arr = None
-    if mu is not None:
-        mu_arr = mu.to_numpy() if isinstance(mu, pd.Series) else mu
-    else:
-        mu_arr = None
-
-    constraints = [
-        {
-            "type": "eq",
-            "fun": partial(sum_constraint_fn, target_sum=target_sum),
-        }
-    ]
-
-    if apply_constraints:
-        if cvar_limit is not None:
-            constraints.append(
-                {
-                    "type": "ineq",
-                    "fun": partial(
-                        cvar_constraint_fn,
-                        returns_arr=returns_arr,
-                        alpha=alpha,
-                        cvar_limit=cvar_limit,
-                    ),
-                }
-            )
-        if vol_limit is not None:
-            constraints.append(
-                {
-                    "type": "ineq",
-                    "fun": partial(
-                        vol_constraint_fn, cov_arr=cov_arr, vol_limit=vol_limit
-                    ),
-                }
-            )
-    if allow_short:
-        constraints.append(
-            {
-                "type": "ineq",
-                "fun": partial(
-                    gross_exposure_fn, max_gross_exposure=max_gross_exposure
-                ),
-            }
-        )
+    lower_bound = bounds[0][0]
 
     # Define the objective function to be optimized.
     chosen_obj = None
@@ -298,76 +414,24 @@ def optimize_weights_objective(
         init_weights *= 0.95
 
     # --- Global Optimization Branch ---
-
     if use_annealing or use_diffusion:
-        local_result = minimize(
-            chosen_obj,
-            init_weights,
-            method=solver_method,
-            bounds=bounds,
-            constraints=constraints,
-            options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
-        )
-        if local_result.success:
-            initial_candidate = local_result.x
-        else:
-            logger.warning(
-                "Local solver did not converge; using init_weights as candidate."
-            )
-            initial_candidate = init_weights
-
-        # Configure the penalty function and the penalized objective.
-        penalty_function = partial(
-            penalty,
-            penalty_weight=penalty_weight,
-            constraints=constraints,
-            target_sum=target_sum,
-        )
-        penalized_obj = partial(
-            penalized_objective,
+        global_result, candidate = run_global_optimization(
             chosen_obj=chosen_obj,
-            penalty=penalty_function,
-        )
-
-    if use_annealing:
-        cb = callback if callback is not None else (lambda x, f, context: False)
-        # Assumes multi_seed_dual_annealing accepts an 'initial_candidate' parameter.
-        result = multi_seed_dual_annealing(
-            penalized_obj,
+            init_weights=init_weights,
             bounds=bounds,
-            num_runs=3,
-            maxiter=10000,
-            initial_temp=10000,
-            visit=10,
-            accept=-10.0,
-            callback=cb,
-            initial_candidate=initial_candidate,
+            constraints=constraints,
+            solver_method=solver_method,
+            target_sum=target_sum,
+            penalty_weight=penalty_weight,
+            use_annealing=use_annealing,
+            use_diffusion=use_diffusion,
+            callback=callback,
         )
-        if result.success:
-            return result.x
+        if global_result is not None:
+            return global_result
         else:
-            logger.warning("Dual annealing optimization failed: " + result.message)
-
-    if use_diffusion:
-        cb = callback if callback is not None else (lambda x, convergence: False)
-        # Assumes multi_seed_diffusion accepts an 'initial_candidate' parameter.
-        result = multi_seed_diffusion(
-            penalized_obj,
-            bounds=bounds,
-            num_runs=3,  # Number of random seeds.
-            popsize=15,  # Population size.
-            maxiter=10000,  # Number of generations.
-            mutation=(0.5, 1),  # Mutation range.
-            recombination=0.7,  # Recombination rate.
-            callback=cb,
-            initial_candidate=initial_candidate,
-        )
-        if result.success:
-            return result.x
-        else:
-            logger.warning(
-                "Stochastic diffusion optimization did not converge: " + result.message
-            )
+            # Fall back to the candidate from local minimization if global fails.
+            init_weights = candidate
 
     # --- Standard Local Solver Branch ---
     result = minimize(
@@ -376,6 +440,7 @@ def optimize_weights_objective(
         method=solver_method,
         bounds=bounds,
         constraints=constraints,
+        callback=callback,
         options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
     )
     if not result.success:
