@@ -293,8 +293,13 @@ def nested_clustered_optimization(
     if plot:
         try:
             if overall_search_history.size > 0:
-                print(overall_search_history)
-                print("\n", final_weights.values)
+                optimization_method_str = ''
+                if use_annealing:
+                    optimization_method_str = "via Dual Annealing"
+                elif use_diffusion:
+                    optimization_method_str = "via Stochastic Diffusion"
+                print('search history', overall_search_history)
+                print("\n final weights", final_weights.values)
                 plot_global_optimization(
                     search_history=overall_search_history,
                     final_solution=final_weights.values,
@@ -303,9 +308,7 @@ def nested_clustered_optimization(
                     ),
                     grid_resolution=90,
                     title="Global Optimization Contour {}".format(
-                        "via Dual Annealing"
-                        if use_annealing
-                        else "via Stochastic Diffusion"
+                       optimization_method_str
                     ),
                     flip_objective=True,
                 ).show()
