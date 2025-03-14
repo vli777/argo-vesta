@@ -16,7 +16,7 @@ def multi_seed_diffusion(
     mutation=(0.5, 1),
     recombination: float = 0.7,
     callback=None,
-    time_limit: float = 60.0,
+    time_limit: float = 300.0,
     initial_candidate: np.ndarray = None,
     perturb_scale: float = 0.05,  # fraction of each bound range to perturb
 ):
