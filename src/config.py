@@ -127,7 +127,7 @@ class Config:
             instance.use_global_optimization
             and instance.global_optimization_type is None
         ):
-            instance.global_optimization_type = "annealing"
+            instance.global_optimization_type = "diffusion"
 
         # Record which keys are overridable (from the YAML's options block).
         instance._overridable_keys = set(options_yaml.keys())
