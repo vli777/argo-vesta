@@ -154,13 +154,15 @@ def run_global_optimization(
         result = multi_seed_dual_annealing(
             penalized_obj,
             bounds=bounds,
-            num_runs=3,
+            num_runs=10,
             maxiter=10000,
             initial_temp=10000,
             visit=10,
             accept=-10.0,
             callback=cb,
-            # initial_candidate=candidate,
+            initial_candidate=candidate,
+            perturb_scale=0.3,
+            target_sum=target_sum,
         )
         if result.success:
             return result.x, candidate
@@ -171,13 +173,13 @@ def run_global_optimization(
         result = multi_seed_diffusion(
             penalized_obj,
             bounds=bounds,
-            num_runs=3,
+            num_runs=10,
             popsize=15,
             maxiter=10000,
             mutation=(0.5, 1),
             recombination=0.7,
             callback=cb,
-            # initial_candidate=candidate,
+            # initial_candidate=candidate, # Diffusion doesn't require explicit seeding.
         )
         if result.success:
             return result.x, candidate
@@ -405,6 +407,7 @@ def optimize_weights_objective(
             if min_weight is not None:
                 init_weights = np.maximum(init_weights, min_weight)
             init_weights = np.minimum(init_weights, max_weight)
+            init_weights = init_weights / init_weights.sum() * target_sum
 
     # Check feasibility of initial weights; adjust if necessary.
     if (
@@ -412,6 +415,7 @@ def optimize_weights_objective(
         and estimated_portfolio_volatility(init_weights, cov) > vol_limit
     ):
         init_weights *= 0.95
+        init_weights = init_weights / init_weights.sum() * target_sum
 
     # --- Global Optimization Branch ---
     if use_annealing or use_diffusion:
