@@ -202,7 +202,7 @@ def nested_clustered_optimization(
         intra_weights.loc[cluster_assets, cluster] = weights
 
         logger.info(
-            f"Intra-cluster weights before global optimization:\n{intra_weights}"
+            f"Intra-cluster weights:\n{intra_weights}"
         )
 
     # --- Inter-cluster optimization ---

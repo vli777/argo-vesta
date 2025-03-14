@@ -294,6 +294,12 @@ def run_pipeline(
         if config.portfolio_max_cvar is not None:
             combined_models += f" + CVaR <= {config.portfolio_max_cvar:.2f}"
 
+    if config.use_global_optimization:
+        if config.global_optimization_type == 'annealing':
+            combined_models += " + annealing"
+        elif config.global_optimization_type == 'diffusion':
+            combined_models += " + diffusion"
+    
     # Sort symbols and filter DataFrame accordingly
     sorted_symbols = sorted(final_weights.keys())
     dfs["data"] = dfs["data"].filter(items=sorted_symbols)
