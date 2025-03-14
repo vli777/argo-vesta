@@ -53,9 +53,15 @@ def adaptive_risk_constraints(
         )
 
     def portfolio_cumulative_return(w, returns, T):
-        # Assumes returns is a DataFrame of daily log returns.
-        daily_return = np.sum(w * returns)  # weighted daily log return
-        return T * daily_return
+        """
+        Returns a single float measuring the annualized log return
+        (or total log return) of the portfolio.
+        """
+        # Weighted daily log returns: shape (N_days,)
+        daily_returns = returns @ w  # or returns.values @ w
+        # For an annual log return:
+        annual_return = daily_returns.mean() * T
+        return annual_return  # float
 
     def objective(trial):
         """
