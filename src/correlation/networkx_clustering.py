@@ -59,6 +59,23 @@ def get_cluster_labels_mst(
     return asset_cluster_map
 
 
+def cluster_networkx(returns_df: pd.DataFrame) -> np.ndarray:
+    """
+    Helper function to obtain an array of cluster labels in the order of returns_df.columns.
+    This function uses the asset-to-cluster mapping produced by get_cluster_labels_mst.
+
+    Args:
+        returns_df (pd.DataFrame): DataFrame with dates as index and asset returns as columns.
+
+    Returns:
+        np.ndarray: Array of integer cluster labels corresponding to the order of returns_df.columns.
+    """
+    asset_cluster_map = get_cluster_labels_mst(returns_df)
+    tickers = returns_df.columns.tolist()
+    labels = np.array([asset_cluster_map[ticker] for ticker in tickers])
+    return labels
+
+
 def filter_correlated_groups_mst(
     returns_df: pd.DataFrame,
     risk_free_rate: float = 0.0,

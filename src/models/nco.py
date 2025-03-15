@@ -11,6 +11,7 @@ from models.optimize_portfolio import (
 )
 from models.optimization_plot import plot_global_optimization
 from models.scipy_objective_models import sharpe_objective
+from correlation.networkx_clustering import cluster_networkx
 from utils.logger import logger
 
 
@@ -153,8 +154,8 @@ def nested_clustered_optimization(
         target = risk_free_rate
 
     # --- Cluster assets ---
-    corr = cov_to_corr(cov)
-    labels = cluster_kmeans(corr, len(valid_assets))
+    # corr = cov_to_corr(cov)
+    labels = cluster_networkx(returns)  # cluster_kmeans(corr, len(valid_assets))
     unique_clusters = np.unique(labels)
 
     # --- Intra-cluster optimization ---
