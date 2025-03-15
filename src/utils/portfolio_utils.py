@@ -95,38 +95,37 @@ def convert_weights_to_series(weights, index=None):
         return pd.Series(dtype=float)
 
 
-def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
+def normalize_weights(weights, min_weight: Optional[float] = 0.0) -> pd.Series:
     """
     Normalize the weights by:
-      - Optionally filtering out assets whose absolute weight is below a threshold if min_weight > 0.
-      - Always filtering out assets with weight exactly 0.
+      - Filtering out assets whose absolute weight is below a threshold.
+        If min_weight > 0, use that value; if min_weight is 0.0, remove any weight below 0.1% (0.001).
       - Scaling the remaining weights so that their sum is exactly 1.
       - Rounding to three decimals.
+      - Adjusting one asset so that rounding errors are corrected.
 
     If all assets are filtered out, the original weights are used.
 
     Args:
         weights (dict or pd.Series): Input weights (may include negatives if shorts are allowed).
-        min_weight (float): Minimum (absolute) weight threshold. If 0.0, only zero weights are removed.
+        min_weight (float): Minimum threshold for filtering weights. If 0.0, a threshold of 0.1% (0.001) is used.
 
     Returns:
         pd.Series: Normalized weights that sum to 1.
     """
+    import pandas as pd
+
     # Convert dict to Series if necessary.
     if isinstance(weights, dict):
         weights = pd.Series(weights)
 
-    # If min_weight > 0, filter out assets with |weight| < min_weight.
-    if min_weight > 0:
-        filtered = weights[weights.abs() >= min_weight]
-    else:
-        filtered = weights.copy()
+    # Use the provided min_weight if > 0; otherwise, use 0.1% (0.001) as the threshold.
+    threshold = min_weight if min_weight > 0 else 0.001
 
-    # Always remove assets that are exactly zero.
-    filtered = filtered[filtered != 0]
-
+    # Filter out assets whose absolute weight is below the threshold.
+    filtered = weights[weights.abs() >= threshold]
     if filtered.empty:
-        # If filtering removes everything, use the original weights.
+        # If filtering removes everything, revert to the original weights.
         filtered = weights.copy()
 
     total_weight = filtered.sum()
@@ -137,17 +136,17 @@ def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
     scaled = filtered / total_weight
     # Round to three decimals.
     rounded = scaled.round(3)
-
-    # Adjust the first element so that the sum is exactly 1.
+    # Adjust the first element to ensure the sum is exactly 1.
     diff = 1.0 - rounded.sum()
     if len(rounded) > 0:
         first = rounded.index[0]
         rounded.loc[first] += diff
 
-    # Finally, remove any asset that still ends up exactly zero and renormalize.
+    # Finally, remove any asset that rounds to exactly zero and renormalize.
     final = rounded[rounded != 0]
     final = final / final.sum()
     return final
+
 
 
 def stacked_output(
