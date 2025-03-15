@@ -11,7 +11,7 @@ models:
 
 download: bool # Whether to download data
 min_weight: float # Minimum weight for inclusion in final weights
-max_weight: float # Maximum weight allowed for any individual hodling
+max_weight: float # Maximum weight allowed for any individual holding. Recommended as it can act as a regularizer term in addition to being practical.
 portfolio_max_size: int # Maximum number of assets in the portfolio, default vol limit^2
 portfolio_max_vol: float # Maximum allowable target portfolio volatility e.g. 0.16 for 16%
 portfolio_max_cvar: float # Maximum allowable tail risk e.g. -0.02 for -2%
@@ -32,6 +32,8 @@ plot_optimization: bool # Whether to plot the optimization search space
 
 use_anomaly_filter: bool # Whether to filter assets with anomalous returns
 use_decorrelation: bool # Whether to filter correlated assets
+clustering_type: str # Either 'hdbscan', 'spectral', 'mst', default 'spectral'
+top_n_performers: int # Manual override of how many top performers to select from each cluster
 use_reversion: bool # Whether to adjust weights with mean reversion
 reversion_type: str # Either 'z' for z-score based, or 'ou' for heat potential with OU process, default 'ou'
 

@@ -106,6 +106,7 @@ def run_optimization_and_save(
         min_weight = config.min_weight
         max_weight = config.max_weight
         optimization_objective = config.optimization_objective
+        cluster_method = config.clustering_type
         allow_short = config.allow_short
         max_gross_exposure = config.max_gross_exposure
         risk_free_rate = config.risk_free_rate
@@ -130,6 +131,7 @@ def run_optimization_and_save(
             "use_annealing": use_annealing,
             "use_diffusion": use_diffusion,
             "plot": plot,
+            "cluster_method": cluster_method,
         }
 
         try:
@@ -151,15 +153,12 @@ def run_optimization_and_save(
                 weights_array, cov_annual.to_numpy()
             )
 
+            sqrt_n_assets = int(np.sqrt(len(weights)))
             portfolio_max_size = estimate_optimal_num_assets(
-                vol_limit=(
-                    config.portfolio_max_vol
-                    if config.portfolio_max_vol
-                    else current_vol
-                ),
-                portfolio_max_size=config.portfolio_max_size,
+                vol_limit=(config.portfolio_max_vol or current_vol),
+                portfolio_max_size=config.portfolio_max_size or sqrt_n_assets,
             ) or len(weights)
-
+            logger.info(f"portfolio max size: {portfolio_max_size}")
             weights = convert_weights_to_series(weights, index=mu_annual.index)
             normalized_weights = normalize_weights(weights, config.min_weight)
             final_weights = limit_portfolio_size(

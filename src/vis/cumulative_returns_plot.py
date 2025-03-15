@@ -7,20 +7,16 @@ import plotly.express as px
 
 
 from config import Config
-from vis.plot_utils import get_text_color, update_plot_layout
+from vis.utils import get_text_color, update_plot_layout
 from utils.logger import logger
 
 
-def plot_cumulative_returns(
+def cumulative_returns_plot(
     cumulative_returns: pd.DataFrame,
     color_map: Dict[str, str],
-    config,
     paper_bgcolor: str,
     plot_bgcolor: str,
 ) -> None:
-    if not config.plot_cumulative_returns:
-        return
-
     # Determine default text color and annotation circle color based on the plot background.
     text_color = get_text_color(plot_bgcolor)
     subtext_color = "#a3a3a3"

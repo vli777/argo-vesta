@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 
 from config import Config
-from vis.plot_risk_return import plot_risk_return_contributions
-from vis.plot_cumulative_returns import plot_cumulative_returns
-from vis.plot_daily_returns import plot_daily_returns
-from vis.plot_utils import generate_color_map
+from vis.cumulative_returns_plot import cumulative_returns_plot
+from vis.daily_returns_plot import daily_returns_plot
+from vis.risk_return_plot import risk_return_contributions_plot
+from vis.utils import generate_color_map
 from utils.logger import logger
 
 
@@ -16,10 +16,12 @@ def plot_graphs(
     cumulative_returns: pd.DataFrame,
     return_contributions: np.ndarray,
     risk_contributions: np.ndarray,
-    config,
     symbols: List[str],
     theme: str = "light",
     palette: str = "default",
+    plot_daily_returns: bool = False,
+    plot_cumulative_returns: bool = False,
+    plot_contribution: bool = False,
 ) -> None:
     """
     Creates Plotly graphs for daily returns and cumulative returns using
@@ -32,11 +34,9 @@ def plot_graphs(
         np array containing returns contribution to the portfolio for each symbol.
     risk_contributions : np.ndarray
         np array containing risk contribution to the portfolio for each symbol.
-    config : Config
-        Configuration object with boolean attributes:
-            - plot_daily_returns (bool)
-            - plot_cumulative_returns (bool)
-            - plot_contribution (bool)
+    plot_daily_returns (bool)
+    plot_cumulative_returns (bool)
+    plot_contribution (bool)
     symbols : List[str]
         List of symbols corresponding to columns in `cumulative_returns`.
     theme : str
@@ -59,18 +59,24 @@ def plot_graphs(
         symbols, cumulative_returns, palette=palette
     )
 
-    if config.plot_daily_returns:
-        plot_daily_returns(
-            daily_returns, color_map, config, paper_bgcolor, plot_bgcolor
+    if plot_daily_returns:
+        daily_returns_plot(
+            daily_returns=daily_returns,
+            color_map=color_map,
+            paper_bgcolor=paper_bgcolor,
+            plot_bgcolor=plot_bgcolor,
         )
 
-    if config.plot_cumulative_returns:
-        plot_cumulative_returns(
-            cumulative_returns, color_map, config, paper_bgcolor, plot_bgcolor
+    if plot_cumulative_returns:
+        cumulative_returns_plot(
+            cumulative_returns=cumulative_returns,
+            color_map=color_map,
+            paper_bgcolor=paper_bgcolor,
+            plot_bgcolor=plot_bgcolor,
         )
 
-    if config.plot_contribution:
-        plot_risk_return_contributions(
+    if plot_contribution:
+        risk_return_contributions_plot(
             symbols=symbols,
             return_contributions=return_contributions,
             risk_contributions=risk_contributions,
