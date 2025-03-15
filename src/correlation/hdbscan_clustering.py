@@ -13,7 +13,7 @@ from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_
 from utils.logger import logger
 
 
-def get_cluster_labels(
+def get_cluster_labels_hdbscan(
     returns_df: pd.DataFrame,
     cache_dir: str = "optuna_cache",
     reoptimize: bool = False,

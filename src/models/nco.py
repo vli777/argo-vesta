@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Dict
@@ -11,7 +12,49 @@ from models.optimize_portfolio import (
 )
 from models.optimization_plot import plot_global_optimization
 from models.scipy_objective_models import sharpe_objective
+from correlation.hdbscan_clustering import get_cluster_labels_hdbscan
+from correlation.networkx_clustering import get_cluster_labels_mst
+from correlation.spectral_clustering import get_cluster_labels_spectral
 from utils.logger import logger
+
+
+def get_cluster_labels_from_map(
+    returns_df: pd.DataFrame, corr: np.ndarray, cluster_method: str = "kmeans", **kwargs
+) -> np.ndarray:
+    """
+    Cluster assets using the specified method and return an array of cluster labels in the
+    order of returns_df.columns.
+
+    Depending on the 'cluster_method' argument, one of the following functions is used:
+        - "mst": uses Minimum Spanning Tree community detection (get_cluster_labels_mst)
+        - "hdbscan": uses HDBSCAN clustering (get_cluster_labels)
+        - "spectral": uses Spectral Clustering (get_cluster_labels_spectral)
+
+    Any additional keyword arguments are passed to the underlying clustering function.
+
+    Args:
+        returns_df (pd.DataFrame): DataFrame with dates as index and asset returns as columns.
+        corr: (np.ndarray): Correlation matrix used for default kmeans method
+        cluster_method (str): Clustering method to use ("mst", "hdbscan", or "spectral").
+
+    Returns:
+        np.ndarray: Array of integer cluster labels corresponding to the order of returns_df.columns.
+    """
+    if cluster_method.lower() == "mst":
+        asset_cluster_map = get_cluster_labels_mst(returns_df)
+    elif cluster_method.lower() == "hdbscan":
+        asset_cluster_map = get_cluster_labels_hdbscan(returns_df, **kwargs)
+    elif cluster_method.lower() == "spectral":
+        asset_cluster_map = get_cluster_labels_spectral(returns_df, **kwargs)
+    else:
+        labels = cluster_kmeans(
+            corr, max_clusters=math.ceil(np.sqrt(len(returns_df.columns)))
+        )
+        return labels
+
+    tickers = returns_df.columns.tolist()
+    labels = np.array([asset_cluster_map[ticker] for ticker in tickers])
+    return labels
 
 
 def cov_to_corr(cov):
@@ -101,6 +144,7 @@ def nested_clustered_optimization(
     use_annealing: bool = False,
     use_diffusion: bool = False,
     plot: bool = False,
+    cluster_method: str = "kmeans",
 ) -> pd.Series:
     """
     Perform Nested Clustered Optimization with a flexible objective.
@@ -122,6 +166,7 @@ def nested_clustered_optimization(
         use_annealing (bool): Use dual annealing to search for global optima.
         use_diffusion (bool): Use stochastic diffusion to search for global optima.
         plot (bool): Whether to plot the optimization path
+        cluster_method (str): Clustering method (default 'kmeans')
 
     Returns:
         pd.Series: Final portfolio weights.
@@ -154,7 +199,13 @@ def nested_clustered_optimization(
 
     # --- Cluster assets ---
     corr = cov_to_corr(cov)
-    labels = cluster_kmeans(corr, len(valid_assets))
+    labels = get_cluster_labels_from_map(
+        returns_df=returns,
+        cluster_method=cluster_method,
+        corr=corr,
+        cache_dir="optuna_cache",
+        reoptimize=False,
+    )
     unique_clusters = np.unique(labels)
 
     # --- Intra-cluster optimization ---
