@@ -4,7 +4,7 @@ Modern Portfolio Optimization
 # Upcoming
 - [ ] DuckDB migration for faster data loading
 - [ ] Bayesian changepoint detection for regime switching
-- [ ] Clustering fine-tuning
+- [x] Clustering fine-tuning
 - [ ] Volatility Strategies
 - [ ] Forecasting models
 
