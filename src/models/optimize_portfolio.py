@@ -373,6 +373,7 @@ def optimize_weights_objective(
                     mu=mu,
                     returns=returns,
                     target_sum=target_sum,
+                    min_weight=min_weight,
                     max_weight=max_weight,
                     allow_short=allow_short,
                     gross_target=max_gross_exposure,
