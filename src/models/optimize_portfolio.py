@@ -321,12 +321,14 @@ def optimize_weights_objective(
                     "cbc",
                     executable="H:/Solvers/Cbc-releases.2.10.12-w64-msvc17-md/bin/cbc.exe",
                 )
-                results = solver.solve(model, tee=False)
-                if (results.solver.status != SolverStatus.ok) or (
-                    results.solver.termination_condition != TerminationCondition.optimal
+                results_pyomo = solver.solve(model, tee=False)
+                if (
+                    results_pyomo.solver.status != pyo.SolverStatus.ok
+                    or results_pyomo.solver.termination_condition
+                    != pyo.TerminationCondition.optimal
                 ):
                     raise RuntimeError(
-                        "Solver did not converge! Status: {results.solver.status}, Termination: {results.solver.termination_condition}"
+                        f"Solver did not converge! Status: {results_pyomo.solver.status}, Termination: {results_pyomo.solver.termination_condition}"
                     )
                 # Recover weights from y and z: w = y/z.
                 z_val = pyo.value(model.z)
@@ -340,10 +342,13 @@ def optimize_weights_objective(
                 return weights
             except Exception as e:
                 logger.warning(
-                    "Pyomo optimization failed (possibly infeasible): "
-                    f"{e}. Falling back to local solver approach."
+                    "Pyomo optimization for Omega objective failed: "
+                    + str(e)
+                    + ". Falling back to local solver approach."
                 )
-                chosen_obj = partial(omega_objective, mu_arr=mu_arr, cov_arr=cov_arr)
+                chosen_obj = partial(
+                    omega_objective, returns_arr=returns_arr, theta=target
+                )
 
     elif objective.lower() == "aggro":
         if returns_arr is None or returns.empty:
@@ -386,16 +391,25 @@ def optimize_weights_objective(
                     "ipopt",
                     executable="H:/Solvers/Ipopt-3.14.17-win64-msvs2022-md/bin/ipopt.exe",
                 )
-                solver.solve(model_pyomo)
+                results_pyomo = solver.solve(model_pyomo, tee=False)
+                # Check if the solver status is OK and termination condition is optimal.
+                if (
+                    results_pyomo.solver.status != pyo.SolverStatus.ok
+                    or results_pyomo.solver.termination_condition
+                    != pyo.TerminationCondition.optimal
+                ):
+                    raise RuntimeError(
+                        f"Solver did not converge! Status: {results_pyomo.solver.status}, "
+                        f"Termination: {results_pyomo.solver.termination_condition}"
+                    )
                 weights_pyomo = np.array(
                     [pyo.value(model_pyomo.w[i]) for i in model_pyomo.assets]
                 )
-                # Normalize weights_pyomo to sum to target_sum.
                 weights_pyomo = weights_pyomo / np.sum(weights_pyomo) * target_sum
                 return weights_pyomo
             except Exception as e:
                 logger.warning(
-                    "Pyomo optimization failed (possibly infeasible): "
+                    "Pyomo optimization failed (possibly due to infeasibility): "
                     f"{e}. Falling back to local solver approach."
                 )
                 chosen_obj = partial(sharpe_objective, mu_arr=mu_arr, cov_arr=cov_arr)

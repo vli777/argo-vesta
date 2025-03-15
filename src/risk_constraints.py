@@ -68,6 +68,9 @@ def adaptive_risk_constraints(
         Optuna objective function for tuning relaxation factors.
         Depending on risk_priority, one of the limits is pinned while the other is relaxed.
         """
+        vol_limit_adj = None
+        cvar_limit_adj = None
+
         # Determine relaxation factors based on risk_priority.
         if risk_priority == "vol":
             # Pin vol_limit and relax only CVaR.
@@ -190,30 +193,6 @@ def adaptive_risk_constraints(
     except ValueError as e:
         logger.error(f"Final optimization failed: {e}")
         return None
-
-
-def adjust_constraints(
-    max_vol: Optional[float],
-    max_cvar: Optional[float],
-    relax_factor: float,
-    risk_priority: str,
-) -> tuple:
-    """
-    This function is retained for backward compatibility.
-    When using separate relaxation factors, it is not used in the main optimization.
-    """
-    if risk_priority == "vol":
-        new_vol = max_vol  # pinned
-        new_cvar = max_cvar * relax_factor if max_cvar is not None else None
-        return new_vol, new_cvar
-    elif risk_priority == "cvar":
-        new_vol = max_vol * relax_factor if max_vol is not None else None
-        new_cvar = max_cvar  # pinned
-        return new_vol, new_cvar
-    else:  # "both"
-        new_vol = max_vol * relax_factor if max_vol is not None else None
-        new_cvar = max_cvar * relax_factor if max_cvar is not None else None
-        return new_vol, new_cvar
 
 
 def apply_risk_constraints(

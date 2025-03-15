@@ -290,9 +290,9 @@ def run_pipeline(
     final_weights_series = pd.Series(final_weights)
     if not (final_weights_series.equals(normalized_avg_weights)):
         if config.portfolio_max_vol is not None:
-            combined_models += f" + σ <= {config.portfolio_max_vol:.2f}"
+            combined_models += f" + σ <= {float(config.portfolio_max_vol):.2f}"
         if config.portfolio_max_cvar is not None:
-            combined_models += f" + CVaR <= {config.portfolio_max_cvar:.2f}"
+            combined_models += f" + CVaR <= {float(config.portfolio_max_cvar):.2f}"
 
     if config.use_global_optimization:
         if config.global_optimization_type == 'annealing':
