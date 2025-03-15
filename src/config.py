@@ -38,6 +38,7 @@ class Config:
     use_anomaly_filter: bool
     use_decorrelation: bool
     clustering_type: Optional[str]
+    top_n_performers: Optional[int]
     use_reversion: bool
     reversion_type: Optional[str]
     optimization_objective: Optional[str]
@@ -83,6 +84,7 @@ class Config:
             "use_anomaly_filter": False,
             "use_decorrelation": False,
             "clustering_type": "spectral",
+            "top_n_performers": None,
             "use_reversion": False,
             "reversion_type": None,
             "optimization_objective": "sharpe",
