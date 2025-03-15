@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 import hdbscan
 import numpy as np
 import pandas as pd
@@ -105,6 +105,7 @@ def filter_correlated_groups_hdbscan(
     risk_free_rate: float = 0.0,
     plot: bool = False,
     objective: str = "sharpe",
+    top_n: Optional[int] = None,
 ) -> list[str]:
     """
     Uses HDBSCAN to cluster assets based on the distance (1 - correlation) matrix.
@@ -117,6 +118,7 @@ def filter_correlated_groups_hdbscan(
         risk_free_rate (float): Risk-free rate for performance metric calculation.
         plot (bool): If True, display a visualization of clusters.
         objective (str): Optimization objective used as top cluster candidate selection
+        top_n (int): Manual override for top n performers selection from each cluster.
 
     Returns:
         list(str): A list of selected ticker symbols after decorrelation.
@@ -141,7 +143,7 @@ def filter_correlated_groups_hdbscan(
     )
 
     # Select the best-performing tickers from each cluster
-    selected_tickers = get_clusters_top_performers(clusters, perf_series)
+    selected_tickers = get_clusters_top_performers(clusters, perf_series, top_n=top_n)
 
     removed_tickers = set(returns_df.columns) - set(selected_tickers)
     if removed_tickers:

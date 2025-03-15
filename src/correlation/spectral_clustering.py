@@ -108,6 +108,7 @@ def filter_correlated_groups_spectral(
     plot: bool = False,
     cache_dir: str = "optuna_cache",
     reoptimize: bool = False,
+    top_n: Optional[int] = None
 ) -> List[str]:
     """
     Uses spectral clustering on the asset returns to create fine‑grained, tight clusters.
@@ -120,6 +121,7 @@ def filter_correlated_groups_spectral(
         n_clusters (int, optional): The number of clusters to form. If None, it is estimated via eigen gap analysis.
         objective (str): The performance metric objective for ranking assets.
         plot (bool): If True, display TSNE and UMAP visualizations of the clusters.
+        top_n (int): Manual override for top n performers selection from each cluster.
 
     Returns:
         List[str]: A list of selected asset tickers.
@@ -180,7 +182,7 @@ def filter_correlated_groups_spectral(
 
     # For each cluster, select the top performer(s)
     # Select the best-performing tickers from each cluster
-    selected_tickers = get_clusters_top_performers(clusters, perf_series)
+    selected_tickers = get_clusters_top_performers(clusters, perf_series, top_n=top_n)
 
     if plot:
         visualize_clusters_tsne(
