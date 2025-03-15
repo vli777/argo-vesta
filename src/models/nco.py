@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Dict
@@ -18,7 +19,7 @@ from utils.logger import logger
 
 
 def get_cluster_labels_from_map(
-    returns_df: pd.DataFrame, corr: np.ndarray, cluster_method: str = "mst", **kwargs
+    returns_df: pd.DataFrame, corr: np.ndarray, cluster_method: str = "kmeans", **kwargs
 ) -> np.ndarray:
     """
     Cluster assets using the specified method and return an array of cluster labels in the
@@ -46,7 +47,9 @@ def get_cluster_labels_from_map(
     elif cluster_method.lower() == "spectral":
         asset_cluster_map = get_cluster_labels_spectral(returns_df, **kwargs)
     else:
-        labels = cluster_kmeans(corr, **kwargs)
+        labels = cluster_kmeans(
+            corr, max_clusters=math.ceil(np.sqrt(len(returns_df.columns)))
+        )
         return labels
 
     tickers = returns_df.columns.tolist()

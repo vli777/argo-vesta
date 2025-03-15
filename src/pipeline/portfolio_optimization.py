@@ -131,7 +131,7 @@ def run_optimization_and_save(
             "use_annealing": use_annealing,
             "use_diffusion": use_diffusion,
             "plot": plot,
-            "cluster_method": cluster_method,
+            # "cluster_method": cluster_method,
         }
 
         try:
