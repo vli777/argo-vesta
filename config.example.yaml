@@ -32,6 +32,7 @@ plot_optimization: bool # Whether to plot the optimization search space
 
 use_anomaly_filter: bool # Whether to filter assets with anomalous returns
 use_decorrelation: bool # Whether to filter correlated assets
+clustering_type: str # Either 'hdbscan', 'spectral', 'mst', default 'spectral'
 use_reversion: bool # Whether to adjust weights with mean reversion
 reversion_type: str # Either 'z' for z-score based, or 'ou' for heat potential with OU process, default 'ou'
 
