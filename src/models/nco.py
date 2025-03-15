@@ -2,8 +2,6 @@ import math
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Dict
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_samples
 from functools import partial
 from multiprocessing import Manager
 
@@ -15,6 +13,7 @@ from models.scipy_objective_models import sharpe_objective
 from correlation.hdbscan_clustering import get_cluster_labels_hdbscan
 from correlation.networkx_clustering import get_cluster_labels_mst
 from correlation.spectral_clustering import get_cluster_labels_spectral
+from correlation.kmeans_clustering import cluster_kmeans
 from utils.logger import logger
 
 
@@ -369,31 +368,3 @@ def nested_clustered_optimization(
     # logger.info(f"Final optimized weights:\n{final_weights}")
 
     return final_weights
-
-
-def cluster_kmeans(corr: np.ndarray, max_clusters: int = 10) -> np.ndarray:
-    """
-    Cluster assets using KMeans on the correlation matrix.
-    """
-    # Transform correlation to a distance metric
-    dist = np.sqrt(0.5 * (1 - corr))
-    n_samples = dist.shape[0]
-
-    max_valid_clusters = min(max_clusters, n_samples - 1) if n_samples > 1 else 1
-    best_silhouette = -1.0
-    best_labels = None
-
-    for k in range(2, max_valid_clusters + 1):
-        kmeans = KMeans(n_clusters=k, n_init=10, random_state=42)
-        labels = kmeans.fit_predict(dist)
-        if len(np.unique(labels)) < 2:
-            continue
-        silhouette = silhouette_samples(dist, labels).mean()
-        if silhouette > best_silhouette:
-            best_silhouette = silhouette
-            best_labels = labels
-
-    if best_labels is None:
-        best_labels = np.zeros(n_samples, dtype=int)
-
-    return best_labels
