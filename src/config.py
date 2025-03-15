@@ -1,28 +1,33 @@
 # src/config.py
 
-import yaml
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+
 import os
+import yaml
+from dataclasses import asdict, dataclass, field
+from typing import List, Dict, Any, Optional
 
 
 @dataclass
 class Config:
+    # Core (non-overridable) parameters:
     data_dir: str
     input_files_dir: str
     input_files: List[str]
-
+    models: Dict[str, List[str]]
     download: bool
+    test_mode: bool
+    test_data_visible_pct: float
+
+    # Overridable (options) parameters:
     min_weight: float
     max_weight: float
-    portfolio_max_size: int
-    portfolio_max_vol: float
-    portfolio_max_cvar: float
+    portfolio_max_size: Optional[int]
+    portfolio_max_vol: Optional[float]
+    portfolio_max_cvar: Optional[float]
     portfolio_risk_priority: str
     risk_free_rate: float
     allow_short: bool
     max_gross_exposure: float
-
     plot_daily_returns: bool
     plot_cumulative_returns: bool
     plot_contribution: bool
@@ -30,21 +35,21 @@ class Config:
     plot_clustering: bool
     plot_reversion: bool
     plot_optimization: bool
-
     use_anomaly_filter: bool
     use_decorrelation: bool
     use_reversion: bool
-    reversion_type: Optional[str]  # Can be "ou", "z", or None
-
+    reversion_type: Optional[str]
     optimization_objective: Optional[str]
     use_global_optimization: bool
-    global_optimization_type: Optional[str]  # Can be "annealing", "diffusion", or None
+    global_optimization_type: Optional[str]
 
-    test_mode: bool
-    test_data_visible_pct: float
-    models: Dict[str, List[str]] = field(
-        default_factory=lambda: {"1.00": ["nested_clustering"]}
-    )
+    options: Dict[str, Any] = field(init=False)
+    _overridable_keys: set = field(init=False, repr=False)
+    _core_keys: set = field(init=False, repr=False)
+
+    def __post_init__(self):
+        # Initialize options so that asdict() can find it.
+        self.options = {}
 
     @classmethod
     def from_yaml(cls, config_file: str) -> "Config":
@@ -54,51 +59,101 @@ class Config:
         with open(config_file, "r") as f:
             config_dict = yaml.safe_load(f) or {}
 
-        # Ensure default values for missing or empty keys
-        config_dict["models"] = config_dict.get(
-            "models", {"1.00": ["nested_clustering"]}
-        )
+        # Defaults for all parameters.
+        defaults = {
+            "download": False,
+            "input_files": [],
+            "min_weight": 0.0,
+            "max_weight": 1.0,
+            "portfolio_max_size": None,
+            "portfolio_max_vol": None,
+            "portfolio_max_cvar": None,
+            "portfolio_risk_priority": "both",
+            "risk_free_rate": 0.0,
+            "allow_short": False,
+            "max_gross_exposure": 1.3,
+            "plot_daily_returns": False,
+            "plot_cumulative_returns": False,
+            "plot_contribution": False,
+            "plot_anomalies": False,
+            "plot_clustering": False,
+            "plot_reversion": False,
+            "plot_optimization": False,
+            "use_anomaly_filter": False,
+            "use_decorrelation": False,
+            "use_reversion": False,
+            "reversion_type": None,
+            "optimization_objective": "sharpe",
+            "use_global_optimization": False,
+            "global_optimization_type": None,
+            "test_mode": False,
+            "test_data_visible_pct": 0.1,
+            "models": {"1.00": ["nested_clustering"]},
+        }
 
-        data_dir = config_dict["data_dir"]
-        input_files_dir = config_dict.get("input_files_dir", "watchlists")
-        os.makedirs(data_dir, exist_ok=True)
-        os.makedirs(input_files_dir, exist_ok=True)
+        # Split the YAML into two parts:
+        # - Anything at the top level (except "options") is core.
+        # - The "options" group contains keys that can be overridden.
+        core_yaml = {
+            k: v for k, v in config_dict.items() if k != "options" and v is not None
+        }
+        options_yaml = {
+            k: v for k, v in config_dict.get("options", {}).items() if v is not None
+        }
 
-        use_reversion = config_dict.get("use_reversion", False)
-        reversion_type = (
-            config_dict.get("reversion_type", "z") if use_reversion else None
-        )
+        # Build the final configuration:
+        # Start with defaults, then let core YAML override defaults for core keys,
+        # and finally let the options YAML override defaults for overridable keys.
+        final_config = {**defaults, **core_yaml, **options_yaml}
 
-        return cls(
-            data_dir=data_dir,
-            input_files_dir=input_files_dir,
-            input_files=config_dict["input_files"],
-            models=config_dict["models"],
-            download=config_dict.get("download", False),
-            min_weight=config_dict.get("min_weight", 0.01),
-            max_weight=config_dict.get("max_weight", 1.0),
-            portfolio_max_size=config_dict.get("portfolio_max_size"),
-            portfolio_max_vol=config_dict.get("portfolio_max_vol"),
-            portfolio_max_cvar=config_dict.get("portfolio_max_cvar"),
-            portfolio_risk_priority=config_dict.get("portfolio_risk_priority", "both"),
-            risk_free_rate=config_dict.get("risk_free_rate", 0.0),
-            allow_short=config_dict.get("allow_short", False),
-            max_gross_exposure=config_dict.get("max_gross_exposure", 1.3),
-            plot_daily_returns=config_dict.get("plot_daily_returns", False),
-            plot_cumulative_returns=config_dict.get("plot_cumulative_returns", False),
-            plot_contribution=config_dict.get("plot_contribution", False),
-            plot_clustering=config_dict.get("plot_clustering", False),
-            plot_anomalies=config_dict.get("plot_anomalies", False),
-            plot_reversion=config_dict.get("plot_reversion", False),
-            plot_optimization=config_dict.get("plot_optimization", False),
-            use_anomaly_filter=config_dict.get("use_anomaly_filter", False),
-            use_decorrelation=config_dict.get("use_decorrelation", False),
-            use_reversion=use_reversion,
-            reversion_type=reversion_type,  # Defaults to "ou" if enabled, else None
-            optimization_objective=config_dict.get("optimization_objective")
-            or "sharpe",
-            use_global_optimization=config_dict.get("use_global_optimization", False),
-            global_optimization_type=config_dict.get("global_optimization_type"),
-            test_mode=config_dict.get("test_mode", False),
-            test_data_visible_pct=config_dict.get("test_data_visible_pct", 0.1),
-        )
+        # Instantiate the Config object.
+        instance = cls(**final_config)
+
+        # Ensure required core fields are present.
+        if "data_dir" not in final_config:
+            raise ValueError("data_dir must be specified in the configuration file")
+
+        # Set a default for input_files_dir if not provided.
+        instance.input_files_dir = final_config.get("input_files_dir", "watchlists")
+        os.makedirs(instance.data_dir, exist_ok=True)
+        os.makedirs(instance.input_files_dir, exist_ok=True)
+
+        # Set default reversion_type if used.
+        if instance.use_reversion and instance.reversion_type is None:
+            instance.reversion_type = "z"
+
+        # Set default global_optimization_type if used.
+        if (
+            instance.use_global_optimization
+            and instance.global_optimization_type is None
+        ):
+            instance.global_optimization_type = "diffusion"
+
+        # Record which keys are overridable (from the YAML's options block).
+        instance._overridable_keys = set(options_yaml.keys())
+        # All other keys in the final configuration are considered core.
+        instance._core_keys = set(final_config.keys()) - instance._overridable_keys
+
+        # Build the options dictionary from only the overridable parameters.
+        instance.options = {
+            k: v for k, v in asdict(instance).items() if k in instance._overridable_keys
+        }
+        return instance
+
+    def update_options(self, overrides: Dict[str, Any]) -> None:
+        """
+        Update only the overridable parameters (those originally specified in YAML's "options" group).
+        """
+        for key, value in overrides.items():
+            if key in self._overridable_keys:
+                setattr(self, key, value)
+        # Refresh the options dictionary.
+        self.options = {
+            k: v for k, v in asdict(self).items() if k in self._overridable_keys
+        }
+
+    def __getitem__(self, key: str) -> Any:
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key)

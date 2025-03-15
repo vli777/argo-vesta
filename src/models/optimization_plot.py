@@ -1,16 +1,17 @@
+from typing import Callable
 import numpy as np
 import plotly.graph_objects as go
 from sklearn.decomposition import PCA
 
 
 def plot_global_optimization(
-    search_history,
-    final_solution,
-    objective_function,
-    grid_resolution=50,
-    title="Global Optimization Contour",
-    flip_objective=False,
-):
+    search_history: np.ndarray,
+    final_solution: np.ndarray,
+    objective_function: Callable[[np.ndarray], float],
+    grid_resolution: int = 50,
+    title: str = "Global Optimization Contour",
+    flip_objective: bool = False,
+) -> go.Figure:
     """
     Create a 3D contour/surface plot of the global optimization manifold for the whole portfolio.
 

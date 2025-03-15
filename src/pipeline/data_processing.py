@@ -5,9 +5,19 @@ from pathlib import Path
 
 from config import Config
 from anomaly.anomaly_detection import remove_anomalous_stocks
-from correlation.cluster_assets import get_cluster_labels
-from correlation.filter_hdbscan import filter_correlated_groups_hdbscan
+from correlation.hdbscan_clustering import (
+    filter_correlated_groups_hdbscan,
+    get_cluster_labels,
+)
 from pipeline.process_symbols import process_symbols
+from correlation.networkx_clustering import (
+    filter_correlated_groups_mst,
+    get_cluster_labels_mst,
+)
+from correlation.spectral_clustering import (
+    filter_correlated_groups_spectral,
+    get_cluster_labels_spectral,
+)
 from utils.portfolio_utils import normalize_weights, stacked_output
 from utils.data_utils import download_multi_ticker_data, process_input_files
 from utils.logger import logger
@@ -94,8 +104,7 @@ def calculate_returns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def preprocess_data(
-    returns_df: pd.DataFrame, 
-    config: Config
+    returns_df: pd.DataFrame, config: Config, clustering_method: str = "mst"
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Preprocess the returns DataFrame by applying optional anomaly and decorrelation filters.
@@ -107,10 +116,30 @@ def preprocess_data(
     Returns:
         Tuple[pd.DataFrame, Dict[str, Any]]: Filtered DataFrame and asset cluster map.
     """
-    # Create asset cluster map (independent of filtering)
-    asset_cluster_map = get_cluster_labels(
-        returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
-    )
+    if clustering_method == "spectral":
+        filter_correlated_groups_spectral(
+            returns_df=returns_df,
+            risk_free_rate=config.risk_free_rate,
+            plot=config.plot_clustering,
+        )
+
+    # Create asset cluster map using the selected method.
+    if clustering_method == "spectral":
+        asset_cluster_map = get_cluster_labels_spectral(
+            returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
+        )
+    elif clustering_method == "mst":
+        """
+        MST community detection is generally parameter-free in this context. Unlike spectral clustering
+        —which requires tuning parameters like gamma and the number of clusters—the MST method builds a
+        complete graph from your distance matrix, computes its minimum spanning tree, and then applies a
+        parameter-free greedy modularity algorithm for community detection.
+        """
+        asset_cluster_map = get_cluster_labels_mst(returns_df=returns_df)
+    else:  # fallback to hdbscan
+        asset_cluster_map = get_cluster_labels(
+            returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
+        )
 
     filtered_returns_df = returns_df
 
@@ -130,13 +159,14 @@ def preprocess_data(
     if config.use_decorrelation:
         logger.info("Filtering correlated assets...")
         valid_symbols = filter_correlated_assets(
-            filtered_returns_df, config, asset_cluster_map
+            filtered_returns_df,
+            config,
+            asset_cluster_map,
+            clustering_method=clustering_method,
         )
-
         valid_symbols = [
             symbol for symbol in valid_symbols if symbol in filtered_returns_df.columns
         ]
-
     filtered_returns_df = filtered_returns_df[valid_symbols]
 
     return filtered_returns_df.dropna(how="all"), asset_cluster_map
@@ -146,34 +176,71 @@ def filter_correlated_assets(
     returns_df: pd.DataFrame,
     config: Config,
     asset_cluster_map: Dict[str, int],
+    clustering_method: str = "mst",
 ) -> List[str]:
     """
-    Apply mean reversion and decorrelation filters to return valid asset symbols.
-    Falls back to the original returns_df columns if filtering results in an empty list.
+    Apply decorrelation filtering based on asset clusters.
+
+    Args:
+        returns_df (pd.DataFrame): DataFrame with asset returns.
+        config (Config): Configuration object.
+        asset_cluster_map (Dict[str, int]): Clustering map produced by the chosen clustering method.
+
+    Returns:
+        List[str]: List of valid asset symbols after filtering.
     """
-    original_symbols = list(returns_df.columns)  # Preserve original symbols
+    original_symbols = list(returns_df.columns)
     trading_days_per_year = 252
     risk_free_rate_log_daily = np.log(1 + config.risk_free_rate) / trading_days_per_year
 
     try:
-        decorrelated_tickers = filter_correlated_groups_hdbscan(
-            returns_df=returns_df,
-            asset_cluster_map=asset_cluster_map,
-            risk_free_rate=risk_free_rate_log_daily,
-            plot=config.plot_clustering,
-            objective=config.optimization_objective,
-        )
-
+        if clustering_method == "spectral":
+            decorrelated_tickers = filter_correlated_groups_spectral(
+                returns_df=returns_df,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+            )
+        elif clustering_method == "mst":
+            decorrelated_tickers = filter_correlated_groups_mst(
+                returns_df=returns_df,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+            )
+        elif clustering_method == "hdbscan":
+            decorrelated_tickers = filter_correlated_groups_hdbscan(
+                returns_df=returns_df,
+                asset_cluster_map=asset_cluster_map,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+            )
+        else:
+            raise ValueError(f"Unknown clustering method: {clustering_method}")
         valid_symbols = [
             symbol for symbol in original_symbols if symbol in decorrelated_tickers
         ]
-
     except Exception as e:
-        logger.error(f"Correlation threshold optimization failed: {e}")
-        # Fall back to original symbols if optimization fails
-        valid_symbols = original_symbols
+        logger.error(
+            f"Correlation threshold optimization failed using {clustering_method}: {e}"
+        )
+        # Fallback to HDBSCAN if spectral clustering fails.
+        if clustering_method == "spectral":
+            logger.info("Falling back to HDBSCAN for decorrelation filtering.")
+            decorrelated_tickers = filter_correlated_groups_hdbscan(
+                returns_df=returns_df,
+                asset_cluster_map=asset_cluster_map,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+            )
+            valid_symbols = [
+                symbol for symbol in original_symbols if symbol in decorrelated_tickers
+            ]
+        else:
+            valid_symbols = original_symbols
 
-    # Ensure a non-empty list of symbols is returned
     if not valid_symbols:
         logger.warning("No valid symbols after filtering. Returning original symbols.")
         valid_symbols = original_symbols
