@@ -148,7 +148,6 @@ def normalize_weights(weights, min_weight: Optional[float] = 0.0) -> pd.Series:
     return final
 
 
-
 def stacked_output(
     stack_dict: Dict[str, Dict[str, float]],
     period_weights: Optional[Union[Dict[str, float], np.ndarray]] = None,

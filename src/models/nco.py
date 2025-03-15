@@ -201,9 +201,7 @@ def nested_clustered_optimization(
             weights = np.repeat(weights, len(cluster_assets))
         intra_weights.loc[cluster_assets, cluster] = weights
 
-        logger.info(
-            f"Intra-cluster weights:\n{intra_weights}"
-        )
+        logger.info(f"Intra-cluster weights:\n{intra_weights}")
 
     # --- Inter-cluster optimization ---
     valid_clusters = intra_weights.columns[intra_weights.sum(axis=0) > 1e-6]
@@ -293,12 +291,12 @@ def nested_clustered_optimization(
     if plot:
         try:
             if overall_search_history.size > 0:
-                optimization_method_str = ''
+                optimization_method_str = ""
                 if use_annealing:
                     optimization_method_str = "via Dual Annealing"
                 elif use_diffusion:
                     optimization_method_str = "via Stochastic Diffusion"
-                print('search history', overall_search_history)
+                print("search history", overall_search_history)
                 print("\n final weights", final_weights.values)
                 plot_global_optimization(
                     search_history=overall_search_history,
@@ -308,7 +306,7 @@ def nested_clustered_optimization(
                     ),
                     grid_resolution=90,
                     title="Global Optimization Contour {}".format(
-                       optimization_method_str
+                        optimization_method_str
                     ),
                     flip_objective=True,
                 ).show()

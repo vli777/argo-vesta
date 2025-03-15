@@ -56,8 +56,9 @@ def multi_seed_diffusion(
             for j, (low, high) in enumerate(bounds):
                 # Compute perturbation scale relative to bound range.
                 range_val = high - low
-                perturbation = np.random.uniform(-perturb_scale * range_val,
-                                                 perturb_scale * range_val)
+                perturbation = np.random.uniform(
+                    -perturb_scale * range_val, perturb_scale * range_val
+                )
                 candidate[j] = np.clip(candidate[j] + perturbation, low, high)
             init_pop[i] = candidate
         init_param = init_pop
@@ -89,8 +90,11 @@ def multi_seed_diffusion(
 
         start_time = time.monotonic()
         try:
-            for future in tqdm(as_completed(futures, timeout=time_limit),
-                               total=len(futures), desc="Stochastic Diffusion"):
+            for future in tqdm(
+                as_completed(futures, timeout=time_limit),
+                total=len(futures),
+                desc="Stochastic Diffusion",
+            ):
                 try:
                     result = future.result()
                     results.append(result)
@@ -103,7 +107,9 @@ def multi_seed_diffusion(
             logger.info("Time limit reached while waiting for futures.")
 
     if not results:
-        logger.warning("No diffusion runs completed within the time limit; waiting for one result.")
+        logger.warning(
+            "No diffusion runs completed within the time limit; waiting for one result."
+        )
         for future in futures:
             try:
                 result = future.result(timeout=5)
