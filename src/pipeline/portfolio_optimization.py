@@ -106,6 +106,7 @@ def run_optimization_and_save(
         min_weight = config.min_weight
         max_weight = config.max_weight
         optimization_objective = config.optimization_objective
+        cluster_method = config.clustering_type
         allow_short = config.allow_short
         max_gross_exposure = config.max_gross_exposure
         risk_free_rate = config.risk_free_rate
@@ -130,6 +131,7 @@ def run_optimization_and_save(
             "use_annealing": use_annealing,
             "use_diffusion": use_diffusion,
             "plot": plot,
+            "cluster_method": cluster_method,
         }
 
         try:
