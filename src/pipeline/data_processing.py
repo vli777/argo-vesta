@@ -221,8 +221,7 @@ def filter_correlated_assets(
             )
         elif config.clustering_type == "kmeans":
             decorrelated_tickers = filter_correlated_groups_kmeans(
-                returns_df=returns_df,
-                asset_cluster_map=asset_cluster_map,
+                returns_df=returns_df,                
                 risk_free_rate=risk_free_rate_log_daily,
                 plot=config.plot_clustering,
                 objective=config.optimization_objective,
