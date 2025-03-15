@@ -7,11 +7,11 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 from config import Config
-from vis.plot_utils import get_text_color
+from vis.utils import get_text_color
 from utils.logger import logger
 
 
-def plot_risk_return_contributions(
+def risk_return_contributions_plot(
     symbols: list,
     return_contributions: np.ndarray,
     risk_contributions: np.ndarray,

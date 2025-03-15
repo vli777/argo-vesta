@@ -95,56 +95,57 @@ def convert_weights_to_series(weights, index=None):
         return pd.Series(dtype=float)
 
 
-def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
+def normalize_weights(weights, min_weight: Optional[float] = 0.0) -> pd.Series:
     """
-    Normalize the weights by filtering out absolute values below min_weight,
-    scaling the net sum to exactly 1, and rounding to three decimals.
+    Normalize the weights by:
+      - Filtering out assets whose absolute weight is below a threshold.
+        If min_weight > 0, use that value; if min_weight is 0.0, remove any weight below 0.1% (0.001).
+      - Scaling the remaining weights so that their sum is exactly 1.
+      - Rounding to three decimals.
+      - Adjusting one asset so that rounding errors are corrected.
 
-    If all weights are below min_weight, it scales the original weights to sum to 1.
+    If all assets are filtered out, the original weights are used.
 
     Args:
-        weights (dict or pd.Series): The input weights (may include negative values if shorts are allowed).
-        min_weight (float): The minimum (absolute) weight threshold.
+        weights (dict or pd.Series): Input weights (may include negatives if shorts are allowed).
+        min_weight (float): Minimum threshold for filtering weights. If 0.0, a threshold of 0.1% (0.001) is used.
 
     Returns:
-        pd.Series: The normalized weights, whose sum is exactly 1.0 after rounding.
+        pd.Series: Normalized weights that sum to 1.
     """
-    if min_weight is None:
-        min_weight = 0.01
+    import pandas as pd
 
-    # Convert dict to Series if necessary
+    # Convert dict to Series if necessary.
     if isinstance(weights, dict):
         weights = pd.Series(weights)
 
-    # Filter out assets whose absolute weight is below min_weight
-    filtered = weights[weights.abs() >= min_weight]
+    # Use the provided min_weight if > 0; otherwise, use 0.1% (0.001) as the threshold.
+    threshold = min_weight if min_weight > 0 else 0.001
+
+    # Filter out assets whose absolute weight is below the threshold.
+    filtered = weights[weights.abs() >= threshold]
     if filtered.empty:
-        # If everything is below min_weight, revert to original
+        # If filtering removes everything, revert to the original weights.
         filtered = weights.copy()
 
     total_weight = filtered.sum()
     if total_weight == 0:
-        # If the sum is zero (all zero or balanced positive/negative?), fallback
-        # or raise an error. Here we raise, but you could also revert to original.
         raise ValueError("Total weight is zero after filtering. Cannot normalize.")
 
-    # Scale so net sum = 1
-    scaled_weights = filtered / total_weight
+    # Scale so that the net sum is 1.
+    scaled = filtered / total_weight
+    # Round to three decimals.
+    rounded = scaled.round(3)
+    # Adjust the first element to ensure the sum is exactly 1.
+    diff = 1.0 - rounded.sum()
+    if len(rounded) > 0:
+        first = rounded.index[0]
+        rounded.loc[first] += diff
 
-    # Round to three decimals
-    rounded_weights = scaled_weights.round(3)
-
-    # Make the sum exactly 1.0 by adjusting the first element
-    sum_rounded = rounded_weights.sum()
-    diff = 1.0 - sum_rounded
-
-    if len(rounded_weights) > 0:
-        first_ticker = rounded_weights.index[0]
-        rounded_weights.loc[first_ticker] += diff
-        # Potentially re-round to 3 decimals if the diff is large, but that could cause
-        # a second offset. Usually diff is small enough to ignore or only correct once.
-
-    return rounded_weights
+    # Finally, remove any asset that rounds to exactly zero and renormalize.
+    final = rounded[rounded != 0]
+    final = final / final.sum()
+    return final
 
 
 def stacked_output(
