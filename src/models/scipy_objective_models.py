@@ -71,7 +71,7 @@ def aggro_objective(
     w: np.ndarray,
     returns_arr: np.ndarray,
     cov_arr: np.ndarray,
-    target: float,
+    target_return: float,
     order: int,
 ) -> float:
     """
@@ -81,7 +81,7 @@ def aggro_objective(
         w (np.ndarray): Portfolio weights, shape (n,).
         returns_arr (np.ndarray): Historical returns, shape (T, n).
         cov_arr (np.ndarray): Covariance matrix, shape (n, n).
-        target (float): Target return.
+        target_return (float): Target return.
         order (int): Order of the lower partial moment (LPM).
 
     Returns:
@@ -91,8 +91,8 @@ def aggro_objective(
     cumulative_return = np.prod(1 + port_returns) - 1
     port_mean = np.mean(port_returns)
     port_vol = estimated_portfolio_volatility(w, cov_arr)
-    lpm = empirical_lpm(port_returns, target=target, order=order)
-    kappa_val = ((port_mean - target) / (lpm ** (1.0 / order))) if lpm > 1e-8 else -1e6
+    lpm = empirical_lpm(port_returns, target=target_return, order=order)
+    kappa_val = ((port_mean - target_return) / (lpm ** (1.0 / order))) if lpm > 1e-8 else -1e6
     sharpe_val = port_mean / port_vol if port_vol > 0 else -1e6
     combined = (cumulative_return + sharpe_val + kappa_val) / 3.0
     return -combined
