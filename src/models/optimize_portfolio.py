@@ -304,37 +304,46 @@ def optimize_weights_objective(
         if n < 50:
             chosen_obj = partial(omega_objective, returns_arr=returns_arr, theta=target)
         else:
-            model = build_omega_model(
-                cov=cov,
-                returns=returns,
-                target=target,
-                target_sum=target_sum,
-                max_weight=max_weight,
-                allow_short=allow_short,
-                vol_limit=vol_limit if apply_constraints else None,
-                cvar_limit=cvar_limit if apply_constraints else None,
-                alpha=alpha,
-            )
-            # Since the transformed omega formulation is linear, use an LP solver like CBC.
-            solver = pyo.SolverFactory(
-                "cbc",
-                executable="H:/Solvers/Cbc-releases.2.10.12-w64-msvc17-md/bin/cbc.exe",
-            )
-            results = solver.solve(model, tee=False)
-            if (results.solver.status != SolverStatus.ok) or (
-                results.solver.termination_condition != TerminationCondition.optimal
-            ):
-                raise RuntimeError(
-                    "Solver did not converge! Status: {results.solver.status}, Termination: {results.solver.termination_condition}"
+            try:
+                model = build_omega_model(
+                    cov=cov,
+                    returns=returns,
+                    target=target,
+                    target_sum=target_sum,
+                    max_weight=max_weight,
+                    allow_short=allow_short,
+                    vol_limit=vol_limit if apply_constraints else None,
+                    cvar_limit=cvar_limit if apply_constraints else None,
+                    alpha=alpha,
                 )
-            # Recover weights from y and z: w = y/z.
-            z_val = pyo.value(model.z)
-            if z_val is None or abs(z_val) < 1e-8:
-                raise RuntimeError("Invalid scaling value in Omega optimization.")
-            weights = np.array([pyo.value(model.y[i]) for i in model.assets]) / z_val
-            # Normalize to sum to target_sum.
-            weights = weights / np.sum(weights) * target_sum
-            return weights
+                # Since the transformed omega formulation is linear, use an LP solver like CBC.
+                solver = pyo.SolverFactory(
+                    "cbc",
+                    executable="H:/Solvers/Cbc-releases.2.10.12-w64-msvc17-md/bin/cbc.exe",
+                )
+                results = solver.solve(model, tee=False)
+                if (results.solver.status != SolverStatus.ok) or (
+                    results.solver.termination_condition != TerminationCondition.optimal
+                ):
+                    raise RuntimeError(
+                        "Solver did not converge! Status: {results.solver.status}, Termination: {results.solver.termination_condition}"
+                    )
+                # Recover weights from y and z: w = y/z.
+                z_val = pyo.value(model.z)
+                if z_val is None or abs(z_val) < 1e-8:
+                    raise RuntimeError("Invalid scaling value in Omega optimization.")
+                weights = (
+                    np.array([pyo.value(model.y[i]) for i in model.assets]) / z_val
+                )
+                # Normalize to sum to target_sum.
+                weights = weights / np.sum(weights) * target_sum
+                return weights
+            except Exception as e:
+                logger.warning(
+                    "Pyomo optimization failed (possibly infeasible): "
+                    f"{e}. Falling back to local solver approach."
+                )
+                chosen_obj = partial(omega_objective, mu_arr=mu_arr, cov_arr=cov_arr)
 
     elif objective.lower() == "aggro":
         if returns_arr is None or returns.empty:
@@ -346,7 +355,7 @@ def optimize_weights_objective(
             aggro_objective,
             returns_arr=returns_arr,
             cov_arr=cov_arr,
-            target=target,
+            target_return=target,
             order=order,
         )
 
@@ -358,28 +367,37 @@ def optimize_weights_objective(
         if n < 50:
             chosen_obj = partial(sharpe_objective, mu_arr=mu_arr, cov_arr=cov_arr)
         else:
-            model_pyomo = build_sharpe_model(
-                cov=cov,
-                mu=mu,
-                returns=returns,
-                target_sum=target_sum,
-                max_weight=max_weight,
-                allow_short=allow_short,
-                gross_target=max_gross_exposure,
-                vol_limit=vol_limit if apply_constraints else None,
-                cvar_limit=cvar_limit if apply_constraints else None,
-                min_return=min_return if apply_constraints else None,
-                alpha=alpha,
-            )
-            solver = pyo.SolverFactory(
-                "ipopt",
-                executable="H:/Solvers/Ipopt-3.14.17-win64-msvs2022-md/bin/ipopt.exe",
-            )
-            solver.solve(model_pyomo)
-            weights_pyomo = np.array(
-                [pyo.value(model_pyomo.w[i]) for i in model_pyomo.assets]
-            )
-            return weights_pyomo
+            try:
+                model_pyomo = build_sharpe_model(
+                    cov=cov,
+                    mu=mu,
+                    returns=returns,
+                    target_sum=target_sum,
+                    max_weight=max_weight,
+                    allow_short=allow_short,
+                    gross_target=max_gross_exposure,
+                    vol_limit=vol_limit if apply_constraints else None,
+                    cvar_limit=cvar_limit if apply_constraints else None,
+                    min_return=min_return if apply_constraints else None,
+                    alpha=alpha,
+                )
+                solver = pyo.SolverFactory(
+                    "ipopt",
+                    executable="H:/Solvers/Ipopt-3.14.17-win64-msvs2022-md/bin/ipopt.exe",
+                )
+                solver.solve(model_pyomo)
+                weights_pyomo = np.array(
+                    [pyo.value(model_pyomo.w[i]) for i in model_pyomo.assets]
+                )
+                # Normalize weights_pyomo to sum to target_sum.
+                weights_pyomo = weights_pyomo / np.sum(weights_pyomo) * target_sum
+                return weights_pyomo
+            except Exception as e:
+                logger.warning(
+                    "Pyomo optimization failed (possibly infeasible): "
+                    f"{e}. Falling back to local solver approach."
+                )
+                chosen_obj = partial(sharpe_objective, mu_arr=mu_arr, cov_arr=cov_arr)
 
     # Check for infeasibility and adjust weight constraints if needed
     if min_weight is not None and min_weight * n > target_sum:
