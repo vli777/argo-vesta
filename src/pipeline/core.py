@@ -26,6 +26,8 @@ from pipeline.data_processing import (
     perform_post_processing,
     preprocess_data,
 )
+from changepoint.bocpd import bocpd
+from changepoint.plot_bocpd import plot_bocpd_result
 from utils.logger import logger
 from utils.performance_metrics import conditional_var
 from utils.caching_utils import cleanup_cache
@@ -94,7 +96,30 @@ def run_pipeline(
 
     # Apply optional preprocessing (anomaly and decorrelation filters)
     filtered_returns_df, asset_cluster_map = preprocess_data(returns_df, config)
+    
+    # Assuming filtered_returns_df has a DateTimeIndex:
+    dates = filtered_returns_df.index
 
+    # Run BOCPD 
+    df_spy = load_data(['SPY'], start_long, end_long, config=config)
+    returns_spy = calculate_returns(df_spy)
+    
+    filtered_returns_plus_market_df = filtered_returns_df.join(returns_spy['SPY'], how='inner')
+    aggregated_returns = filtered_returns_plus_market_df.mean(axis=1)
+    R = bocpd(aggregated_returns, hazard_rate=1/50)
+    
+    fig = plot_bocpd_result(R, title="Bayesian Online Change Point Detection", dates=dates)
+    fig.show()
+    
+    # test pre filter
+    returns_plus_market_df = returns_df.join(returns_spy['SPY'], how='inner')
+    aggregated_returns = returns_plus_market_df.mean(axis=1)
+    R = bocpd(aggregated_returns, hazard_rate=1/50)
+    
+    fig = plot_bocpd_result(R, title="Bayesian Online Change Point Detection (pre-filter)", dates=dates)
+    fig.show()
+
+    # Update valid symbols post-filtering
     valid_symbols = list(filtered_returns_df.columns)
     if not valid_symbols:
         logger.warning("No valid symbols remain after filtering. Aborting pipeline.")
