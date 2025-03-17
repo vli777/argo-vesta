@@ -96,27 +96,24 @@ def run_pipeline(
 
     # Apply optional preprocessing (anomaly and decorrelation filters)
     filtered_returns_df, asset_cluster_map = preprocess_data(returns_df, config)
-    
-    # Assuming filtered_returns_df has a DateTimeIndex:
-    dates = filtered_returns_df.index
 
-    # Run BOCPD 
-    df_spy = load_data(['SPY'], start_long, end_long, config=config)
+    # Run BOCPD
+    df_spy = load_data(["SPY"], start_long, end_long, config=config)
     returns_spy = calculate_returns(df_spy)
-    
-    filtered_returns_plus_market_df = filtered_returns_df.join(returns_spy['SPY'], how='inner')
+    if "SPY" not in filtered_returns_df.columns:
+        filtered_returns_plus_market_df = filtered_returns_df.join(
+            returns_spy["SPY"], how="inner"
+        )
+    else:
+        filtered_returns_plus_market_df = filtered_returns_df
+
     aggregated_returns = filtered_returns_plus_market_df.mean(axis=1)
-    R = bocpd(aggregated_returns, hazard_rate=1/50)
-    
-    fig = plot_bocpd_result(R, title="Bayesian Online Change Point Detection", dates=dates)
-    fig.show()
-    
-    # test pre filter
-    returns_plus_market_df = returns_df.join(returns_spy['SPY'], how='inner')
-    aggregated_returns = returns_plus_market_df.mean(axis=1)
-    R = bocpd(aggregated_returns, hazard_rate=1/50)
-    
-    fig = plot_bocpd_result(R, title="Bayesian Online Change Point Detection (pre-filter)", dates=dates)
+    R = bocpd(aggregated_returns, hazard_rate=1 / 50)
+
+    dates = filtered_returns_plus_market_df.index
+    fig = plot_bocpd_result(
+        R, title="Bayesian Online Change Point Detection", dates=dates
+    )
     fig.show()
 
     # Update valid symbols post-filtering

@@ -29,12 +29,12 @@ def bocpd(data, hazard_rate=1 / 100, mu0=0.0, kappa0=1.0, alpha0=1.0, beta0=1.0)
     alpha_vec = np.array([alpha0])
     beta_vec = np.array([beta0])
 
-    for t in range(1, T + 1):
-        x = data[t - 1]
+    for t_idx in range(1, T + 1):
+        x = data.iloc[t_idx - 1]
         # Array to store predictive probabilities for each run length r at time t-1
-        pred_probs = np.zeros(t)
+        pred_probs = np.zeros(t_idx)
         # Compute predictive probability for each possible run-length segment
-        for r in range(t):
+        for r in range(t_idx):
             # For run-length r, use the current posterior parameters.
             mu_r = mu_vec[r]
             kappa_r = kappa_vec[r]
@@ -50,20 +50,20 @@ def bocpd(data, hazard_rate=1 / 100, mu0=0.0, kappa0=1.0, alpha0=1.0, beta0=1.0)
             pred_probs[r] = t.pdf(x, df=df, loc=mu_r, scale=scale)
 
         # Calculate growth probabilities for extending current runs.
-        growth_probs = R[t - 1, :t] * pred_probs * (1 - hazard_rate)
+        growth_probs = R[t_idx - 1, :t_idx] * pred_probs * (1 - hazard_rate)
         # Change point probability: reset run length to 0.
-        cp_prob = np.sum(R[t - 1, :t] * pred_probs * hazard_rate)
-        # Update run-length probability matrix for time t:
-        R[t, 0] = cp_prob
-        R[t, 1 : t + 1] = growth_probs
+        cp_prob = np.sum(R[t_idx - 1, :t_idx] * pred_probs * hazard_rate)
+        # Update run-length probability matrix for time t_idx:
+        R[t_idx, 0] = cp_prob
+        R[t_idx, 1 : t_idx + 1] = growth_probs
         # Normalize to avoid numerical issues
-        R[t, : t + 1] /= np.sum(R[t, : t + 1])
+        R[t_idx, : t_idx + 1] /= np.sum(R[t_idx, : t_idx + 1])
 
         # Update posterior parameters for each possible run-length.
-        new_mu = np.zeros(t + 1)
-        new_kappa = np.zeros(t + 1)
-        new_alpha = np.zeros(t + 1)
-        new_beta = np.zeros(t + 1)
+        new_mu = np.zeros(t_idx + 1)
+        new_kappa = np.zeros(t_idx + 1)
+        new_alpha = np.zeros(t_idx + 1)
+        new_beta = np.zeros(t_idx + 1)
 
         # For a change point: restart from the prior updated with x.
         new_mu[0] = (kappa0 * mu0 + x) / (kappa0 + 1)
@@ -72,7 +72,7 @@ def bocpd(data, hazard_rate=1 / 100, mu0=0.0, kappa0=1.0, alpha0=1.0, beta0=1.0)
         new_beta[0] = beta0 + 0.5 * (kappa0 / (kappa0 + 1)) * (x - mu0) ** 2
 
         # For continuing existing segment runs: update the parameters recursively.
-        for r in range(1, t + 1):
+        for r in range(1, t_idx + 1):
             # Use the posterior from run length r-1 at the previous time step.
             mu_prev = mu_vec[r - 1]
             kappa_prev = kappa_vec[r - 1]

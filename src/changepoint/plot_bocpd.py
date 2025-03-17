@@ -12,7 +12,7 @@ def plot_bocpd_result(
          Row 0 is the prior; rows 1...T correspond to each observation.
       title: Title of the plot.
       dates: Optional sequence (e.g., pd.Index) to use for the x-axis.
-             If provided, the function will plot R[1:,:] so that the first observation aligns with the first date.
+             If provided, the function will plot R[1:,1:] so that the first observation aligns with the first date.
       run_length_range: Optional list/array for the y-axis (run lengths). Defaults to range(T+1).
 
     Returns:
@@ -20,15 +20,17 @@ def plot_bocpd_result(
     """
     T = R.shape[0] - 1  # T observations
     if dates is not None:
-        # Use provided dates for the x-axis; drop the first row of R (the prior) so that the dimensions match.
+        # Use provided dates for the x-axis; drop the first row and first column of R
         time_range = list(dates)
-        R_plot = R[1:, :]
+        R_plot = R[1:, 1:]
+        # Now, the run length will range from 1 to T (i.e. T elements)
+        if run_length_range is None:
+            run_length_range = list(range(1, R.shape[1]))
     else:
         time_range = list(range(R.shape[0]))
         R_plot = R
-
-    if run_length_range is None:
-        run_length_range = list(range(R.shape[1]))
+        if run_length_range is None:
+            run_length_range = list(range(R.shape[1]))
 
     fig = px.imshow(
         R_plot,
