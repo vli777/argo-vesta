@@ -35,12 +35,12 @@ def pipeline_runner(
         config.portfolio_max_size, int
     ):
         raise TypeError("portfolio_max_size must be an integer")
-    elif config.portfolio_max_size is None:
-        # If not provided, estimate the optimal portfolio size.
-        config.portfolio_max_size = estimate_optimal_num_assets(
-            vol_limit=config.portfolio_max_vol,
-            portfolio_max_size=config.portfolio_max_size,
-        )
+    # elif config.portfolio_max_size is None:
+    #     # If not provided, estimate the optimal portfolio size.
+    #     config.portfolio_max_size = estimate_optimal_num_assets(
+    #         vol_limit=config.portfolio_max_vol,
+    #         portfolio_max_size=config.portfolio_max_size,
+    #     )
 
     symbols = initial_symbols
     previous_top_symbols = set()

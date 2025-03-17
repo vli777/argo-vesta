@@ -19,6 +19,7 @@ from utils.portfolio_utils import (
     estimate_optimal_num_assets,
     limit_portfolio_size,
     normalize_weights,
+    optimal_portfolio_size,
 )
 
 # Dispatch table mapping model names to their corresponding optimization functions
@@ -153,11 +154,14 @@ def run_optimization_and_save(
                 weights_array, cov_annual.to_numpy()
             )
 
-            sqrt_n_assets = int(np.sqrt(len(weights)))
-            portfolio_max_size = estimate_optimal_num_assets(
-                vol_limit=(config.portfolio_max_vol or current_vol),
-                portfolio_max_size=config.portfolio_max_size or sqrt_n_assets,
-            ) or len(weights)
+            portfolio_max_size = optimal_portfolio_size(
+                returns=asset_returns, threshold=0.95
+            )
+            # sqrt_n_assets = int(np.sqrt(len(weights)))
+            # portfolio_max_size = estimate_optimal_num_assets(
+            #     vol_limit=(config.portfolio_max_vol or current_vol),
+            #     portfolio_max_size=config.portfolio_max_size or sqrt_n_assets,
+            # ) or len(weights)
             logger.info(f"portfolio max size: {portfolio_max_size}")
             weights = convert_weights_to_series(weights, index=mu_annual.index)
             normalized_weights = normalize_weights(weights, config.min_weight)

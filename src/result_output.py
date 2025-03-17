@@ -59,10 +59,11 @@ def output(
         data = pd.concat([data, missing_df], axis=1)
 
     # Trim if we have more assets than allowed
-    portfolio_max_size = estimate_optimal_num_assets(
-        vol_limit=config.portfolio_max_vol,
-        portfolio_max_size=config.portfolio_max_size,
-    ) or len(clean_weights)
+    portfolio_max_size = min(config.portfolio_max_size, len(clean_weights))
+    # portfolio_max_size = estimate_optimal_num_assets(
+    #     vol_limit=config.portfolio_max_vol,
+    #     portfolio_max_size=config.portfolio_max_size,
+    # ) or len(clean_weights)
 
     if len(clean_weights) > portfolio_max_size:
         clean_weights = trim_weights(clean_weights, portfolio_max_size)

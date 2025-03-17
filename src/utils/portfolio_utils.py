@@ -325,49 +325,81 @@ def limit_portfolio_size(
     return limited_weights
 
 
-def estimate_optimal_num_assets(
-    vol_limit: float, portfolio_max_size: Optional[int]
-) -> int:
-    """
-    Determine the optimal number of assets in a portfolio using the "volatility squared" rule.
+def optimal_portfolio_size(returns, threshold=0.95):
+    # Compute covariance matrix
+    covariance_matrix = returns.cov()
 
-    The rule suggests that the ideal number of assets (N*) in a portfolio is approximately:
-        N* ≈ (vol_limit * 100)^2
-    where:
-      - vol_limit represents the target portfolio volatility (e.g., 0.12 for 12%).
-      - The intuition is that portfolio variance reduction through diversification follows
-        a diminishing returns pattern, and this formula provides a balance between risk
-        reduction and over-diversification.
+    # --- PCA-based measure ---
+    eigenvalues, _ = np.linalg.eigh(covariance_matrix)
+    eigenvalues_sorted = np.sort(eigenvalues)[::-1]
+    cumulative_var = np.cumsum(eigenvalues_sorted) / np.sum(eigenvalues_sorted)
+    optimal_n_pca = np.argmax(cumulative_var >= threshold) + 1
 
-    Practical Considerations:
-    - The computed N* is **rounded** to the nearest integer.
-    - The number of assets is **bounded** between:
-        - A minimum of 1 (to ensure at least one asset is included).
-        - A maximum defined by `portfolio_max_size` (user-defined upper limit), if provided.
-    - If `vol_limit` is **not set or invalid**, it falls back to `portfolio_max_size` (or 20 as default).
+    # --- HHI-based measure (Effective number of factors) ---
+    normalized_eigenvalues = eigenvalues_sorted / np.sum(eigenvalues_sorted)
+    effective_n_hhi = 1.0 / np.sum(normalized_eigenvalues**2)
 
-    Args:
-        vol_limit (float): The target portfolio volatility constraint (e.g., 0.12 for 12%).
-        portfolio_max_size (Optional[int]): The target portfolio max n assets size (can be `None`).
+    # --- MCTR-based measure ---
+    n_assets = covariance_matrix.shape[0]
+    # Assume an equal-weight portfolio
+    weights = np.ones(n_assets) / n_assets
+    # Compute marginal risk contributions (MRC)
+    mrc = covariance_matrix.dot(weights)
+    # Risk contributions (RC) per asset
+    rc = weights * mrc
+    # Convert risk contributions to percentages
+    rc_pct = rc / np.sum(rc)
+    effective_n_mctr = 1.0 / np.sum(rc_pct**2)
 
-    Returns:
-        int: The optimal number of assets to include in the portfolio.
-    """
-    if vol_limit is None or vol_limit <= 0:
-        return portfolio_max_size  # Fallback to user-defined max size
-
-    # Compute optimal number of assets
-    optimal_n = round((round(vol_limit, 2) * 100) ** 2)
-
-    # Apply constraints: Ensure it does not exceed max size and is at least 1
-    optimal_n = max(optimal_n, 1)  # Ensure at least 1 asset
-    if portfolio_max_size is not None:
-        optimal_n = min(
-            optimal_n, portfolio_max_size
-        )  # Apply upper limit only if defined
-
-    logger.debug(
-        f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
-    )
-
+    # Combine the three estimates by taking the most conservative (lowest) value
+    # where further diversification gains have plateaued
+    optimal_n = int(round(min(optimal_n_pca, effective_n_hhi, effective_n_mctr)))
     return optimal_n
+
+
+# def estimate_optimal_num_assets(
+#     vol_limit: float, portfolio_max_size: Optional[int]
+# ) -> int:
+#     """
+#     Determine the optimal number of assets in a portfolio using the "volatility squared" rule.
+
+#     The rule suggests that the ideal number of assets (N*) in a portfolio is approximately:
+#         N* ≈ (vol_limit * 100)^2
+#     where:
+#       - vol_limit represents the target portfolio volatility (e.g., 0.12 for 12%).
+#       - The intuition is that portfolio variance reduction through diversification follows
+#         a diminishing returns pattern, and this formula provides a balance between risk
+#         reduction and over-diversification.
+
+#     Practical Considerations:
+#     - The computed N* is **rounded** to the nearest integer.
+#     - The number of assets is **bounded** between:
+#         - A minimum of 1 (to ensure at least one asset is included).
+#         - A maximum defined by `portfolio_max_size` (user-defined upper limit), if provided.
+#     - If `vol_limit` is **not set or invalid**, it falls back to `portfolio_max_size` (or 20 as default).
+
+#     Args:
+#         vol_limit (float): The target portfolio volatility constraint (e.g., 0.12 for 12%).
+#         portfolio_max_size (Optional[int]): The target portfolio max n assets size (can be `None`).
+
+#     Returns:
+#         int: The optimal number of assets to include in the portfolio.
+#     """
+#     if vol_limit is None or vol_limit <= 0:
+#         return portfolio_max_size  # Fallback to user-defined max size
+
+#     # Compute optimal number of assets
+#     optimal_n = round((round(vol_limit, 2) * 100) ** 2)
+
+#     # Apply constraints: Ensure it does not exceed max size and is at least 1
+#     optimal_n = max(optimal_n, 1)  # Ensure at least 1 asset
+#     if portfolio_max_size is not None:
+#         optimal_n = min(
+#             optimal_n, portfolio_max_size
+#         )  # Apply upper limit only if defined
+
+#     logger.debug(
+#         f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
+#     )
+
+#     return optimal_n
