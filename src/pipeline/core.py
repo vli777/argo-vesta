@@ -97,25 +97,6 @@ def run_pipeline(
     # Apply optional preprocessing (anomaly and decorrelation filters)
     filtered_returns_df, asset_cluster_map = preprocess_data(returns_df, config)
 
-    # Run BOCPD
-    df_spy = load_data(["SPY"], start_long, end_long, config=config)
-    returns_spy = calculate_returns(df_spy)
-    if "SPY" not in filtered_returns_df.columns:
-        filtered_returns_plus_market_df = filtered_returns_df.join(
-            returns_spy["SPY"], how="inner"
-        )
-    else:
-        filtered_returns_plus_market_df = filtered_returns_df
-
-    aggregated_returns = filtered_returns_plus_market_df.mean(axis=1)
-    R = bocpd(aggregated_returns, hazard_rate=1 / 50)
-
-    dates = filtered_returns_plus_market_df.index
-    fig = plot_bocpd_result(
-        R, title="Bayesian Online Change Point Detection", dates=dates
-    )
-    fig.show()
-
     # Update valid symbols post-filtering
     valid_symbols = list(filtered_returns_df.columns)
     if not valid_symbols:
