@@ -172,15 +172,14 @@ def preprocess_data(
 
     # Adjust asset symbol list with Bayesian changepoint detection if enabled.
     if config.use_regime_detection:
-        logger.info("Adjusting assets based on regime change detection...")
+        logger.info("Detecting current market regime...")
         current_regime = detect_regime_change(
             returns_df=filtered_returns_df, plot=config.plot_changepoint
         )
-        logger.info(f"Detected current regime: {current_regime}")
+        logger.info(f"Current regime classification: {current_regime}")
         if current_regime == "Bearish":
             # If the market is bearish, add 'UUP' and 'USDU' to the valid symbols list.
-            valid_symbols += ['UUP', 'USDU']
-
+            valid_symbols += ["UUP", "USDU"]
 
     # Drop rows with all NaNs.
     return filtered_returns_df, asset_cluster_map

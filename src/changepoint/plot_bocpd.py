@@ -21,7 +21,7 @@ def plot_bocpd_result(
       run_length_range: Optional list/array for the y-axis (run lengths). Defaults to range(R.shape[1]).
       regime_boundaries: Optional list of integer indices (0 to T) defining segment boundaries.
       regime_labels: Optional list of labels (strings) for each regime segment.
-      
+
     Returns:
       fig: A Plotly Figure object.
     """
