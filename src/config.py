@@ -37,6 +37,7 @@ class Config:
     plot_optimization: bool
     use_anomaly_filter: bool
     use_decorrelation: bool
+    use_regime_detection: bool
     clustering_type: Optional[str]
     top_n_performers: Optional[int]
     use_reversion: bool
@@ -83,6 +84,7 @@ class Config:
             "plot_optimization": False,
             "use_anomaly_filter": False,
             "use_decorrelation": False,
+            "use_regime_detection": False,
             "clustering_type": "spectral",
             "top_n_performers": None,
             "use_reversion": False,
