@@ -10,6 +10,7 @@ from correlation.plot_clusters import visualize_clusters_tsne, visualize_cluster
 from models.optimizer_utils import get_objective_weights, strategy_performance_metrics
 from utils import logger
 
+
 def cluster_kmeans(corr: np.ndarray, max_clusters: int = 10) -> np.ndarray:
     """
     Cluster assets using KMeans on the correlation matrix.
@@ -66,10 +67,10 @@ def get_cluster_labels_kmeans(
     corr = returns_df.corr().values
     labels = cluster_kmeans(corr, max_clusters=max_clusters)
     asset_cluster_map = dict(zip(returns_df.columns, labels))
-    
+
     num_clusters = len(np.unique(labels))
     logger.info(f"KMeans clustering produced {num_clusters} clusters.")
-    
+
     return asset_cluster_map
 
 
@@ -79,7 +80,7 @@ def filter_correlated_groups_kmeans(
     objective: str = "sharpe",
     plot: bool = False,
     top_n: Optional[int] = None,
-    max_clusters: int = 10
+    max_clusters: int = 10,
 ) -> List[str]:
     """
     Uses KMeans clustering to group assets based on their correlation, then selects

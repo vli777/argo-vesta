@@ -64,7 +64,7 @@ def filter_correlated_groups_mst(
     risk_free_rate: float = 0.0,
     objective: str = "sharpe",
     plot: bool = False,
-    top_n: Optional[int] = None
+    top_n: Optional[int] = None,
 ) -> List[str]:
     """
     Uses MST community detection to group assets, then selects top performers from each community.
@@ -86,7 +86,7 @@ def filter_correlated_groups_mst(
     )
 
     # Select the best-performing tickers from each cluster.
-    selected_tickers = get_clusters_top_performers(clusters, perf_series,top_n=top_n)
+    selected_tickers = get_clusters_top_performers(clusters, perf_series, top_n=top_n)
 
     if plot:
         # Generate visualizations using the cluster labels in the original order.
