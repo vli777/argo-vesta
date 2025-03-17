@@ -9,7 +9,6 @@ from reversion.reversion_plots import (
 )
 from utils.caching_utils import load_parameters_from_pickle
 from utils.logger import logger
-from utils.portfolio_utils import estimate_optimal_num_assets
 
 
 def pipeline_runner(

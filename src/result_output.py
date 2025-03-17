@@ -20,7 +20,6 @@ from utils.performance_metrics import (
 )
 from utils import logger
 from utils.portfolio_utils import (
-    estimate_optimal_num_assets,
     trim_weights,
 )
 

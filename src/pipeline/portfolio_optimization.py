@@ -16,7 +16,6 @@ from utils.caching_utils import (
 )
 from utils.portfolio_utils import (
     convert_weights_to_series,
-    estimate_optimal_num_assets,
     limit_portfolio_size,
     normalize_weights,
     optimal_portfolio_size,
