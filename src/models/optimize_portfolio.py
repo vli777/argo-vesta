@@ -479,7 +479,7 @@ def optimize_weights_objective(
         constraints=constraints,
         callback=callback,
         options={
-            # "maxiter": 10000, 
+            "maxiter": 20000, 
             "ftol": 1e-9, 
             "eps": 1e-8
         },
