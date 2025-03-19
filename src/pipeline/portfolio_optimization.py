@@ -152,15 +152,15 @@ def run_optimization_and_save(
             current_vol: float = estimated_portfolio_volatility(
                 weights_array, cov_annual.to_numpy()
             )
+            try:
+                portfolio_max_size = (
+                    config.portfolio_max_size
+                    if config.portfolio_max_size is not None
+                    else optimal_portfolio_size(returns=asset_returns, threshold=0.95)
+                )
+            except Exception:  # Handles errors in `optimal_portfolio_size`
+                portfolio_max_size = len(weights)
 
-            portfolio_max_size = optimal_portfolio_size(
-                returns=asset_returns, threshold=0.95
-            )
-            # sqrt_n_assets = int(np.sqrt(len(weights)))
-            # portfolio_max_size = estimate_optimal_num_assets(
-            #     vol_limit=(config.portfolio_max_vol or current_vol),
-            #     portfolio_max_size=config.portfolio_max_size or sqrt_n_assets,
-            # ) or len(weights)
             logger.info(f"portfolio max size: {portfolio_max_size}")
             weights = convert_weights_to_series(weights, index=mu_annual.index)
             normalized_weights = normalize_weights(weights, config.min_weight)
