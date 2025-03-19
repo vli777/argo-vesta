@@ -252,6 +252,8 @@ def nested_clustered_optimization(
         intra_weights.loc[cluster_assets, cluster] = weights
 
         logger.info(f"Intra-cluster weights:\n{intra_weights}")
+        if np.all(np.isclose(intra_weights, 0.0)):
+            logger.warning("intra-cluster weights are all zero")
 
     # --- Inter-cluster optimization ---
     valid_clusters = intra_weights.columns[intra_weights.sum(axis=0) > 1e-6]
@@ -302,6 +304,8 @@ def nested_clustered_optimization(
     )
 
     logger.info(f"Inter-cluster optimized weights:\n{inter_weights}")
+    if np.all(np.isclose(inter_weights, 0.0)):
+        logger.warning("inter-cluster weights are all zero")
 
     # --- Combine intra- and inter-cluster weights to get final portfolio weights ---
     final_weights = intra_weights.mul(inter_weights, axis=1).sum(axis=1)
