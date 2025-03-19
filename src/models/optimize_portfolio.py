@@ -480,8 +480,8 @@ def optimize_weights_objective(
         callback=callback,
         options={
             "maxiter": 20000, 
-            "ftol": 1e-9, 
-            "eps": 1e-8
+            # "ftol": 1e-9, 
+            # "eps": 1e-8
         },
     )
     if not result.success:
