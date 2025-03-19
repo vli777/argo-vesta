@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 from collections import defaultdict
 import numpy as np
 import pandas as pd
+from kneed import KneeLocator
+import plotly.express as px
 
 from .logger import logger
 
@@ -325,81 +327,73 @@ def limit_portfolio_size(
     return limited_weights
 
 
-def optimal_portfolio_size(returns, threshold=0.95):
-    # Compute covariance matrix
-    covariance_matrix = returns.cov()
+def marginal_diversification_plot(selected_assets, diversification_values):
+    df = pd.DataFrame(
+        {
+            "Asset": selected_assets,
+            "Marginal Diversification Gain": diversification_values,
+            "Cumulative Diversification": np.cumsum(diversification_values),
+        }
+    )
 
-    # --- PCA-based measure ---
-    eigenvalues, _ = np.linalg.eigh(covariance_matrix)
-    eigenvalues_sorted = np.sort(eigenvalues)[::-1]
-    cumulative_var = np.cumsum(eigenvalues_sorted) / np.sum(eigenvalues_sorted)
-    optimal_n_pca = np.argmax(cumulative_var >= threshold) + 1
+    fig = px.bar(
+        df,
+        x="Asset",
+        y="Marginal Diversification Gain",
+        title="Marginal Diversification Value per Asset",
+        labels={"Marginal Diversification Gain": "Marginal Diversification Value"},
+    )
+    fig.update_layout(xaxis_tickangle=-45)
+    fig.show()
 
-    # --- HHI-based measure (Effective number of factors) ---
-    normalized_eigenvalues = eigenvalues_sorted / np.sum(eigenvalues_sorted)
-    effective_n_hhi = 1.0 / np.sum(normalized_eigenvalues**2)
 
-    # --- MCTR-based measure ---
-    n_assets = covariance_matrix.shape[0]
-    # Assume an equal-weight portfolio
-    weights = np.ones(n_assets) / n_assets
-    # Compute marginal risk contributions (MRC)
-    mrc = covariance_matrix.dot(weights)
-    # Risk contributions (RC) per asset
-    rc = weights * mrc
-    # Convert risk contributions to percentages
-    rc_pct = rc / np.sum(rc)
-    effective_n_mctr = 1.0 / np.sum(rc_pct**2)
+def optimal_portfolio_size(returns):
+    covariance = returns.cov()
+    assets = returns.columns.tolist()
 
-    # Combine the three estimates by taking the most conservative (lowest) value
-    # where further diversification gains have plateaued
-    optimal_n = int(round(min(optimal_n_pca, effective_n_hhi, effective_n_mctr)))
+    selected_assets = []
+    diversification_values = []
+    remaining_assets = set(assets)
+    current_cov = None
+
+    # Iteratively add assets based on marginal diversification value
+    for _ in range(len(assets)):
+        best_asset = None
+        best_div_gain = -np.inf
+
+        for asset in remaining_assets:
+            trial_assets = selected_assets + [asset]
+            trial_cov = covariance.loc[trial_assets, trial_assets]
+            eigenvalues = np.linalg.eigvalsh(trial_cov)
+            normalized_eig = eigenvalues / np.sum(eigenvalues)
+            trial_hhi = 1.0 / np.sum(normalized_eig**2)
+
+            # Marginal Diversification Gain
+            if current_cov is None:
+                div_gain = trial_hhi
+            else:
+                current_eigen = np.linalg.eigvalsh(current_cov)
+                current_norm_eig = current_eigen / np.sum(current_eigen)
+                current_hhi = 1.0 / np.sum(current_norm_eig**2)
+                div_gain = trial_hhi - current_hhi
+
+            if div_gain > best_div_gain:
+                best_div_gain = div_gain
+                best_asset = asset
+                best_trial_cov = trial_cov
+
+        selected_assets.append(best_asset)
+        diversification_values.append(best_div_gain)
+        remaining_assets.remove(best_asset)
+        current_cov = best_trial_cov
+
+    # Identify optimal size via elbow method (no manual threshold required)
+    cumulative_div = np.cumsum(diversification_values)
+    x = range(1, len(cumulative_div) + 1)
+    kn = KneeLocator(x, cumulative_div, curve="concave", direction="increasing")
+    optimal_n = kn.knee if kn.knee else len(assets)
+
+    # Log for reference
+    logger.info(f"Optimal portfolio size based on MDV elbow method: {optimal_n}")
+
     return optimal_n
-
-
-# def estimate_optimal_num_assets(
-#     vol_limit: float, portfolio_max_size: Optional[int]
-# ) -> int:
-#     """
-#     Determine the optimal number of assets in a portfolio using the "volatility squared" rule.
-
-#     The rule suggests that the ideal number of assets (N*) in a portfolio is approximately:
-#         N* ≈ (vol_limit * 100)^2
-#     where:
-#       - vol_limit represents the target portfolio volatility (e.g., 0.12 for 12%).
-#       - The intuition is that portfolio variance reduction through diversification follows
-#         a diminishing returns pattern, and this formula provides a balance between risk
-#         reduction and over-diversification.
-
-#     Practical Considerations:
-#     - The computed N* is **rounded** to the nearest integer.
-#     - The number of assets is **bounded** between:
-#         - A minimum of 1 (to ensure at least one asset is included).
-#         - A maximum defined by `portfolio_max_size` (user-defined upper limit), if provided.
-#     - If `vol_limit` is **not set or invalid**, it falls back to `portfolio_max_size` (or 20 as default).
-
-#     Args:
-#         vol_limit (float): The target portfolio volatility constraint (e.g., 0.12 for 12%).
-#         portfolio_max_size (Optional[int]): The target portfolio max n assets size (can be `None`).
-
-#     Returns:
-#         int: The optimal number of assets to include in the portfolio.
-#     """
-#     if vol_limit is None or vol_limit <= 0:
-#         return portfolio_max_size  # Fallback to user-defined max size
-
-#     # Compute optimal number of assets
-#     optimal_n = round((round(vol_limit, 2) * 100) ** 2)
-
-#     # Apply constraints: Ensure it does not exceed max size and is at least 1
-#     optimal_n = max(optimal_n, 1)  # Ensure at least 1 asset
-#     if portfolio_max_size is not None:
-#         optimal_n = min(
-#             optimal_n, portfolio_max_size
-#         )  # Apply upper limit only if defined
-
-#     logger.debug(
-#         f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
-#     )
-
-#     return optimal_n
