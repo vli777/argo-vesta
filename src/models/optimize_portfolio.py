@@ -478,8 +478,13 @@ def optimize_weights_objective(
         bounds=bounds,
         constraints=constraints,
         callback=callback,
-        options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
+        options={
+            "maxiter": 10000, 
+            "ftol": 1e-9, 
+            "eps": 1e-8
+        },
     )
     if not result.success:
+        print ('error inside')
         raise ValueError("Optimization failed: " + result.message)
     return result.x
