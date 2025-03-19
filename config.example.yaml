@@ -31,6 +31,7 @@ plot_anomalies: bool # Whether to plot anomalies detected by Kalman filter
 plot_reversion: bool # Whether to plot mean reversion parameters
 plot_optimization: bool # Whether to plot the optimization search space
 plot_changepoint: bool # Whether to plot the regime change point graph 
+plot_marginal_diversification: bool # Whether to plot the marginal diversification values for optimal portfolio size
 
 use_anomaly_filter: bool # Whether to filter assets with anomalous returns
 use_decorrelation: bool # Whether to filter correlated assets

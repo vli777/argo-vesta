@@ -347,7 +347,7 @@ def marginal_diversification_plot(selected_assets, diversification_values):
     fig.show()
 
 
-def optimal_portfolio_size(returns):
+def optimal_portfolio_size(returns, plot=True):
     covariance = returns.cov()
     assets = returns.columns.tolist()
 
@@ -356,7 +356,6 @@ def optimal_portfolio_size(returns):
     remaining_assets = set(assets)
     current_cov = None
 
-    # Iteratively add assets based on marginal diversification value
     for _ in range(len(assets)):
         best_asset = None
         best_div_gain = -np.inf
@@ -368,7 +367,6 @@ def optimal_portfolio_size(returns):
             normalized_eig = eigenvalues / np.sum(eigenvalues)
             trial_hhi = 1.0 / np.sum(normalized_eig**2)
 
-            # Marginal Diversification Gain
             if current_cov is None:
                 div_gain = trial_hhi
             else:
@@ -387,13 +385,14 @@ def optimal_portfolio_size(returns):
         remaining_assets.remove(best_asset)
         current_cov = best_trial_cov
 
-    # Identify optimal size via elbow method (no manual threshold required)
     cumulative_div = np.cumsum(diversification_values)
     x = range(1, len(cumulative_div) + 1)
     kn = KneeLocator(x, cumulative_div, curve="concave", direction="increasing")
     optimal_n = kn.knee if kn.knee else len(assets)
 
-    # Log for reference
-    logger.info(f"Optimal portfolio size based on MDV elbow method: {optimal_n}")
+    if plot:
+        marginal_diversification_plot(
+            selected_assets[:optimal_n], diversification_values[:optimal_n]
+        )
 
     return optimal_n

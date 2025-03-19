@@ -34,6 +34,7 @@ class Config:
     plot_anomalies: bool
     plot_clustering: bool
     plot_changepoint: bool
+    plot_marginal_diversification: bool
     plot_reversion: bool
     plot_optimization: bool
     use_anomaly_filter: bool
@@ -84,6 +85,7 @@ class Config:
             "plot_reversion": False,
             "plot_optimization": False,
             "plot_changepoint": False,
+            "plot_marginal_diversification": False,
             "use_anomaly_filter": False,
             "use_decorrelation": False,
             "use_regime_detection": False,

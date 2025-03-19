@@ -156,12 +156,12 @@ def run_optimization_and_save(
                 portfolio_max_size = (
                     config.portfolio_max_size
                     if config.portfolio_max_size is not None
-                    else optimal_portfolio_size(returns=asset_returns, threshold=0.95)
+                    else optimal_portfolio_size(returns=asset_returns, plot=config.plot_marginal_diversification)
                 )
             except Exception:  # Handles errors in `optimal_portfolio_size`
                 portfolio_max_size = len(weights)
-
             logger.info(f"portfolio max size: {portfolio_max_size}")
+            
             weights = convert_weights_to_series(weights, index=mu_annual.index)
             normalized_weights = normalize_weights(weights, config.min_weight)
             final_weights = limit_portfolio_size(
