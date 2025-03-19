@@ -18,78 +18,51 @@ def bocpd(data, hazard_rate=1 / 100, mu0=0.0, kappa0=1.0, alpha0=1.0, beta0=1.0)
          Note: Row 0 is the prior (before any observations), and rows 1...T correspond to each observation.
     """
     T = len(data)
-    # R[t, r]: run-length probability matrix.
     R = np.zeros((T + 1, T + 1))
     R[0, 0] = 1.0
 
-    # Posterior parameter vectors for each possible run-length.
-    # At t=0, there is only run-length 0 with the prior.
+    # Initial posterior parameters for run-length 0.
     mu_vec = np.array([mu0])
     kappa_vec = np.array([kappa0])
     alpha_vec = np.array([alpha0])
     beta_vec = np.array([beta0])
 
     for t_idx in range(1, T + 1):
-        x = data.iloc[t_idx - 1]
-        # Array to store predictive probabilities for each run length r at time t-1
-        pred_probs = np.zeros(t_idx)
-        # Compute predictive probability for each possible run-length segment
-        for r in range(t_idx):
-            # For run-length r, use the current posterior parameters.
-            mu_r = mu_vec[r]
-            kappa_r = kappa_vec[r]
-            alpha_r = alpha_vec[r]
-            beta_r = beta_vec[r]
+        x = data.iloc[t_idx - 1]  # use data[t_idx-1] if data is a numpy array
 
-            # Student-t predictive distribution parameters:
-            # degrees of freedom: 2*alpha_r,
-            # location: mu_r,
-            # scale: sqrt( beta_r*(kappa_r+1) / (alpha_r*kappa_r) )
-            df = 2 * alpha_r
-            scale = np.sqrt(beta_r * (kappa_r + 1) / (alpha_r * kappa_r))
-            pred_probs[r] = t.pdf(x, df=df, loc=mu_r, scale=scale)
+        # Vectorized predictive probability calculation for each run-length.
+        df_vec = 2 * alpha_vec
+        scale_vec = np.sqrt(beta_vec * (kappa_vec + 1) / (alpha_vec * kappa_vec))
+        pred_probs = t.pdf(x, df=df_vec, loc=mu_vec, scale=scale_vec)
 
-        # Calculate growth probabilities for extending current runs.
-        growth_probs = R[t_idx - 1, :t_idx] * pred_probs * (1 - hazard_rate)
-        # Change point probability: reset run length to 0.
-        cp_prob = np.sum(R[t_idx - 1, :t_idx] * pred_probs * hazard_rate)
-        # Update run-length probability matrix for time t_idx:
+        # Compute the growth and change point probabilities.
+        prev_R = R[t_idx - 1, :t_idx]
+        growth_probs = prev_R * pred_probs * (1 - hazard_rate)
+        cp_prob = np.sum(prev_R * pred_probs * hazard_rate)
+
         R[t_idx, 0] = cp_prob
-        R[t_idx, 1 : t_idx + 1] = growth_probs
-        # Normalize to avoid numerical issues
-        R[t_idx, : t_idx + 1] /= np.sum(R[t_idx, : t_idx + 1])
+        R[t_idx, 1:t_idx + 1] = growth_probs
+        R[t_idx, :t_idx + 1] /= np.sum(R[t_idx, :t_idx + 1])  # normalize
 
-        # Update posterior parameters for each possible run-length.
-        new_mu = np.zeros(t_idx + 1)
-        new_kappa = np.zeros(t_idx + 1)
-        new_alpha = np.zeros(t_idx + 1)
-        new_beta = np.zeros(t_idx + 1)
+        # Update the posterior parameters vectorized.
+        new_mu = np.empty(t_idx + 1)
+        new_kappa = np.empty(t_idx + 1)
+        new_alpha = np.empty(t_idx + 1)
+        new_beta = np.empty(t_idx + 1)
 
-        # For a change point: restart from the prior updated with x.
+        # For the change point (run-length = 0): restart from the prior updated with x.
         new_mu[0] = (kappa0 * mu0 + x) / (kappa0 + 1)
         new_kappa[0] = kappa0 + 1
         new_alpha[0] = alpha0 + 0.5
         new_beta[0] = beta0 + 0.5 * (kappa0 / (kappa0 + 1)) * (x - mu0) ** 2
 
-        # For continuing existing segment runs: update the parameters recursively.
-        for r in range(1, t_idx + 1):
-            # Use the posterior from run length r-1 at the previous time step.
-            mu_prev = mu_vec[r - 1]
-            kappa_prev = kappa_vec[r - 1]
-            alpha_prev = alpha_vec[r - 1]
-            beta_prev = beta_vec[r - 1]
+        # For continuing segments (run-length > 0): update all at once.
+        new_mu[1:] = (kappa_vec * mu_vec + x) / (kappa_vec + 1)
+        new_kappa[1:] = kappa_vec + 1
+        new_alpha[1:] = alpha_vec + 0.5
+        new_beta[1:] = beta_vec + 0.5 * (kappa_vec / (kappa_vec + 1)) * (x - mu_vec) ** 2
 
-            new_mu[r] = (kappa_prev * mu_prev + x) / (kappa_prev + 1)
-            new_kappa[r] = kappa_prev + 1
-            new_alpha[r] = alpha_prev + 0.5
-            new_beta[r] = (
-                beta_prev + 0.5 * (kappa_prev / (kappa_prev + 1)) * (x - mu_prev) ** 2
-            )
-
-        # Replace the old parameter vectors with the updated ones.
-        mu_vec = new_mu
-        kappa_vec = new_kappa
-        alpha_vec = new_alpha
-        beta_vec = new_beta
+        # Update parameter vectors for the next iteration.
+        mu_vec, kappa_vec, alpha_vec, beta_vec = new_mu, new_kappa, new_alpha, new_beta
 
     return R
