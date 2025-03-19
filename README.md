@@ -9,8 +9,7 @@ Modern Portfolio Optimization
 - [ ] Forecasting models
 
 # March 2025
-- [x] OU mean reversion and multi-asset statistical arbitrage
-![image](https://github.com/user-attachments/assets/e838a18d-7173-4102-91eb-40da5c8a96dd)
+- [x] Multi-asset statistical arbitrage
 ![image](https://github.com/user-attachments/assets/c9b31d53-ef5e-46c9-a39f-e04aea618fe8)
 - [x] Return-risk-sharpe profile of portfolio assets to see how much they contribute
 ![contributions](https://github.com/user-attachments/assets/8156b285-b097-4033-b50f-11957c1db483)
