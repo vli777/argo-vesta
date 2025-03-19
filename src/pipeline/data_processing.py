@@ -180,6 +180,8 @@ def preprocess_data(
         if current_regime == "Bearish":
             # If the market is bearish, add 'UUP' and 'USDU' to the valid symbols list.
             valid_symbols += ["UUP", "USDU"]
+            # Then adjust portfolio vol limit 
+            config.portfolio_max_vol = 0.12            
 
     # Drop rows with all NaNs.
     return filtered_returns_df, asset_cluster_map
