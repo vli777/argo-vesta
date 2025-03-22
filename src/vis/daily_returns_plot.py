@@ -7,20 +7,16 @@ import plotly.express as px
 
 
 from config import Config
-from vis.plot_utils import get_text_color
+from vis.utils import get_text_color
 from utils.logger import logger
 
 
-def plot_daily_returns(
+def daily_returns_plot(
     daily_returns: pd.DataFrame,
     color_map: Dict[str, str],
-    config: Config,
     paper_bgcolor: str,
     plot_bgcolor: str,
 ) -> None:
-    if not config.plot_daily_returns:
-        return
-
     # Determine text color based on the plot background color.
     text_color = get_text_color(plot_bgcolor)
     subtext_color = "#a3a3a3"

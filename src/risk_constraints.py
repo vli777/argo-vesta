@@ -53,15 +53,24 @@ def adaptive_risk_constraints(
         )
 
     def portfolio_cumulative_return(w, returns, T):
-        # Assumes returns is a DataFrame of daily log returns.
-        daily_return = np.sum(w * returns)  # weighted daily log return
-        return T * daily_return
+        """
+        Returns a single float measuring the annualized log return
+        (or total log return) of the portfolio.
+        """
+        # Weighted daily log returns: shape (N_days,)
+        daily_returns = returns @ w  # or returns.values @ w
+        # For an annual log return:
+        annual_return = daily_returns.mean() * T
+        return annual_return  # float
 
     def objective(trial):
         """
         Optuna objective function for tuning relaxation factors.
         Depending on risk_priority, one of the limits is pinned while the other is relaxed.
         """
+        vol_limit_adj = None
+        cvar_limit_adj = None
+
         # Determine relaxation factors based on risk_priority.
         if risk_priority == "vol":
             # Pin vol_limit and relax only CVaR.
@@ -184,30 +193,6 @@ def adaptive_risk_constraints(
     except ValueError as e:
         logger.error(f"Final optimization failed: {e}")
         return None
-
-
-def adjust_constraints(
-    max_vol: Optional[float],
-    max_cvar: Optional[float],
-    relax_factor: float,
-    risk_priority: str,
-) -> tuple:
-    """
-    This function is retained for backward compatibility.
-    When using separate relaxation factors, it is not used in the main optimization.
-    """
-    if risk_priority == "vol":
-        new_vol = max_vol  # pinned
-        new_cvar = max_cvar * relax_factor if max_cvar is not None else None
-        return new_vol, new_cvar
-    elif risk_priority == "cvar":
-        new_vol = max_vol * relax_factor if max_vol is not None else None
-        new_cvar = max_cvar  # pinned
-        return new_vol, new_cvar
-    else:  # "both"
-        new_vol = max_vol * relax_factor if max_vol is not None else None
-        new_cvar = max_cvar * relax_factor if max_cvar is not None else None
-        return new_vol, new_cvar
 
 
 def apply_risk_constraints(

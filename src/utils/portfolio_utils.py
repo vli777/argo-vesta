@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 from collections import defaultdict
 import numpy as np
 import pandas as pd
+from kneed import KneeLocator
+import plotly.express as px
 
 from .logger import logger
 
@@ -95,56 +97,57 @@ def convert_weights_to_series(weights, index=None):
         return pd.Series(dtype=float)
 
 
-def normalize_weights(weights, min_weight: Optional[float] = 0.01) -> pd.Series:
+def normalize_weights(weights, min_weight: Optional[float] = 0.0) -> pd.Series:
     """
-    Normalize the weights by filtering out absolute values below min_weight,
-    scaling the net sum to exactly 1, and rounding to three decimals.
+    Normalize the weights by:
+      - Filtering out assets whose absolute weight is below a threshold.
+        If min_weight > 0, use that value; if min_weight is 0.0, remove any weight below 0.1% (0.001).
+      - Scaling the remaining weights so that their sum is exactly 1.
+      - Rounding to three decimals.
+      - Adjusting one asset so that rounding errors are corrected.
 
-    If all weights are below min_weight, it scales the original weights to sum to 1.
+    If all assets are filtered out, the original weights are used.
 
     Args:
-        weights (dict or pd.Series): The input weights (may include negative values if shorts are allowed).
-        min_weight (float): The minimum (absolute) weight threshold.
+        weights (dict or pd.Series): Input weights (may include negatives if shorts are allowed).
+        min_weight (float): Minimum threshold for filtering weights. If 0.0, a threshold of 0.1% (0.001) is used.
 
     Returns:
-        pd.Series: The normalized weights, whose sum is exactly 1.0 after rounding.
+        pd.Series: Normalized weights that sum to 1.
     """
-    if min_weight is None:
-        min_weight = 0.01
+    import pandas as pd
 
-    # Convert dict to Series if necessary
+    # Convert dict to Series if necessary.
     if isinstance(weights, dict):
         weights = pd.Series(weights)
 
-    # Filter out assets whose absolute weight is below min_weight
-    filtered = weights[weights.abs() >= min_weight]
+    # Use the provided min_weight if > 0; otherwise, use 0.1% (0.001) as the threshold.
+    threshold = min_weight if min_weight > 0 else 0.001
+
+    # Filter out assets whose absolute weight is below the threshold.
+    filtered = weights[weights.abs() >= threshold]
     if filtered.empty:
-        # If everything is below min_weight, revert to original
+        # If filtering removes everything, revert to the original weights.
         filtered = weights.copy()
 
     total_weight = filtered.sum()
     if total_weight == 0:
-        # If the sum is zero (all zero or balanced positive/negative?), fallback
-        # or raise an error. Here we raise, but you could also revert to original.
         raise ValueError("Total weight is zero after filtering. Cannot normalize.")
 
-    # Scale so net sum = 1
-    scaled_weights = filtered / total_weight
+    # Scale so that the net sum is 1.
+    scaled = filtered / total_weight
+    # Round to three decimals.
+    rounded = scaled.round(3)
+    # Adjust the first element to ensure the sum is exactly 1.
+    diff = 1.0 - rounded.sum()
+    if len(rounded) > 0:
+        first = rounded.index[0]
+        rounded.loc[first] += diff
 
-    # Round to three decimals
-    rounded_weights = scaled_weights.round(3)
-
-    # Make the sum exactly 1.0 by adjusting the first element
-    sum_rounded = rounded_weights.sum()
-    diff = 1.0 - sum_rounded
-
-    if len(rounded_weights) > 0:
-        first_ticker = rounded_weights.index[0]
-        rounded_weights.loc[first_ticker] += diff
-        # Potentially re-round to 3 decimals if the diff is large, but that could cause
-        # a second offset. Usually diff is small enough to ignore or only correct once.
-
-    return rounded_weights
+    # Finally, remove any asset that rounds to exactly zero and renormalize.
+    final = rounded[rounded != 0]
+    final = final / final.sum()
+    return final
 
 
 def stacked_output(
@@ -324,49 +327,72 @@ def limit_portfolio_size(
     return limited_weights
 
 
-def estimate_optimal_num_assets(
-    vol_limit: float, portfolio_max_size: Optional[int]
-) -> int:
-    """
-    Determine the optimal number of assets in a portfolio using the "volatility squared" rule.
-
-    The rule suggests that the ideal number of assets (N*) in a portfolio is approximately:
-        N* ≈ (vol_limit * 100)^2
-    where:
-      - vol_limit represents the target portfolio volatility (e.g., 0.12 for 12%).
-      - The intuition is that portfolio variance reduction through diversification follows
-        a diminishing returns pattern, and this formula provides a balance between risk
-        reduction and over-diversification.
-
-    Practical Considerations:
-    - The computed N* is **rounded** to the nearest integer.
-    - The number of assets is **bounded** between:
-        - A minimum of 1 (to ensure at least one asset is included).
-        - A maximum defined by `portfolio_max_size` (user-defined upper limit), if provided.
-    - If `vol_limit` is **not set or invalid**, it falls back to `portfolio_max_size` (or 20 as default).
-
-    Args:
-        vol_limit (float): The target portfolio volatility constraint (e.g., 0.12 for 12%).
-        portfolio_max_size (Optional[int]): The target portfolio max n assets size (can be `None`).
-
-    Returns:
-        int: The optimal number of assets to include in the portfolio.
-    """
-    if vol_limit is None or vol_limit <= 0:
-        return portfolio_max_size  # Fallback to user-defined max size
-
-    # Compute optimal number of assets
-    optimal_n = round((round(vol_limit, 2) * 100) ** 2)
-
-    # Apply constraints: Ensure it does not exceed max size and is at least 1
-    optimal_n = max(optimal_n, 1)  # Ensure at least 1 asset
-    if portfolio_max_size is not None:
-        optimal_n = min(
-            optimal_n, portfolio_max_size
-        )  # Apply upper limit only if defined
-
-    logger.debug(
-        f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
+def marginal_diversification_plot(selected_assets, diversification_values):
+    df = pd.DataFrame(
+        {
+            "Asset": selected_assets,
+            "Marginal Diversification Gain": diversification_values,
+            "Cumulative Diversification": np.cumsum(diversification_values),
+        }
     )
+
+    fig = px.bar(
+        df,
+        x="Asset",
+        y="Marginal Diversification Gain",
+        title="Marginal Diversification Value per Asset",
+        labels={"Marginal Diversification Gain": "Marginal Diversification Value"},
+    )
+    fig.update_layout(xaxis_tickangle=-45)
+    fig.show()
+
+
+def optimal_portfolio_size(returns, plot=True):
+    covariance = returns.cov()
+    assets = returns.columns.tolist()
+
+    selected_assets = []
+    diversification_values = []
+    remaining_assets = set(assets)
+    current_cov = None
+
+    for _ in range(len(assets)):
+        best_asset = None
+        best_div_gain = -np.inf
+
+        for asset in remaining_assets:
+            trial_assets = selected_assets + [asset]
+            trial_cov = covariance.loc[trial_assets, trial_assets]
+            eigenvalues = np.linalg.eigvalsh(trial_cov)
+            normalized_eig = eigenvalues / np.sum(eigenvalues)
+            trial_hhi = 1.0 / np.sum(normalized_eig**2)
+
+            if current_cov is None:
+                div_gain = trial_hhi
+            else:
+                current_eigen = np.linalg.eigvalsh(current_cov)
+                current_norm_eig = current_eigen / np.sum(current_eigen)
+                current_hhi = 1.0 / np.sum(current_norm_eig**2)
+                div_gain = trial_hhi - current_hhi
+
+            if div_gain > best_div_gain:
+                best_div_gain = div_gain
+                best_asset = asset
+                best_trial_cov = trial_cov
+
+        selected_assets.append(best_asset)
+        diversification_values.append(best_div_gain)
+        remaining_assets.remove(best_asset)
+        current_cov = best_trial_cov
+
+    cumulative_div = np.cumsum(diversification_values)
+    x = range(1, len(cumulative_div) + 1)
+    kn = KneeLocator(x, cumulative_div, curve="concave", direction="increasing")
+    optimal_n = kn.knee if kn.knee else len(assets)
+
+    if plot:
+        marginal_diversification_plot(
+            selected_assets[:optimal_n], diversification_values[:optimal_n]
+        )
 
     return optimal_n

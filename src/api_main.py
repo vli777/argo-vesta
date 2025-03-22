@@ -3,15 +3,15 @@
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import Any, Dict, List, Optional
 import uvicorn
 
 from config import Config
-from main import iterative_pipeline_runner
+from main import pipeline_runner
 from boxplot import generate_boxplot_data
-from src.pipeline.data_processing import calculate_returns, load_data, load_symbols
-from src.utils.date_utils import calculate_start_end_dates
+from pipeline.data_processing import calculate_returns, load_data, load_symbols
+from utils.date_utils import calculate_start_end_dates
 
 
 app = FastAPI(
@@ -21,19 +21,53 @@ app = FastAPI(
 )
 
 
+class PipelineOptions(BaseModel):
+    min_weight: Optional[float] = Field(
+        default=0.01, description="Minimum weight for inclusion in final weights"
+    )
+    portfolio_max_size: Optional[int] = Field(
+        default=20, description="Maximum number of assets in the portfolio"
+    )
+    use_anomaly_filter: Optional[bool] = Field(
+        default=False, description="Whether to filter assets with anomalous returns"
+    )
+    use_decorrelation: Optional[bool] = Field(
+        default=False, description="Whether to filter correlated assets"
+    )
+    # TO-DO: Add additional options descriptions
+
+
 class PipelineRequest(BaseModel):
-    symbols: Optional[List[str]] = None
-    max_epochs: Optional[int] = 1
-    min_weight: Optional[float] = None
-    portfolio_max_size: Optional[int] = None
+    symbols: Optional[list[str]] = Field(
+        None, description="List of ticker symbols (e.g., AAPL, MSFT, TSLA, etc.)"
+    )
+    options: Optional[PipelineOptions] = Field(
+        None,
+        description="Dynamic API options that override default configuration parameters",
+    )
 
     class Config:
         schema_extra = {
             "example": {
-                "symbols": ["AAPL", "MSFT", "TSLA", "SPY", "TLT", "GLD"],
-                "max_epochs": 15,
-                "min_weight": 0.02,
-                "portfolio_max_size": 20,
+                "symbols": [
+                    "AAPL",
+                    "AMZN",
+                    "MSFT",
+                    "TSLA",
+                    "NVDA",
+                    "GOOG",
+                    "META",
+                    "NFLX",
+                    "SPY",
+                    "TLT",
+                    "GLD",
+                ],
+                "options": {
+                    "min_weight": 0.01,
+                    "portfolio_max_size": 20,
+                    "use_anomaly_filter": False,
+                    "use_decorrelation": False,
+                },
             }
         }
 
@@ -41,9 +75,8 @@ class PipelineRequest(BaseModel):
 @app.post("/inference")
 def inference(req: PipelineRequest):
     """
-    Run the pipeline, optionally overriding config parameters.
+    Run the pipeline, optionally overriding configuration parameters.
     """
-    # Load the default configuration
     default_config_path = "config.yaml"
     try:
         config_obj = Config.from_yaml(default_config_path)
@@ -54,17 +87,17 @@ def inference(req: PipelineRequest):
         )
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error loading default configuration: {str(e)}"
+            status_code=500, detail=f"Error loading configuration: {str(e)}"
         )
 
+    # Update options with any API-provided overrides.
+    if req.options:
+        config_obj.update_options(req.options.model_dump())
+
     try:
-        # Prepare arguments for the pipeline runner
-        pipeline_args = req.dict()
+        pipeline_args = req.model_dump()
         pipeline_args["config"] = config_obj
-
-        # Run the pipeline
-        result = iterative_pipeline_runner(**pipeline_args)
-
+        result = pipeline_runner(**pipeline_args)
     except TypeError as te:
         raise HTTPException(
             status_code=400, detail=f"Invalid parameter type: {str(te)}"
@@ -79,7 +112,15 @@ def inference(req: PipelineRequest):
 
 class BoxplotRequest(BaseModel):
     symbols: Optional[List[str]] = None
-    period: Optional[float] = 1.0  # Defaults to 1 year
+    period: Optional[float] = Field(
+        default=1.0, ge=1.0, description="Period in years, default is 1.0"
+    )
+
+    @field_validator("period")
+    def check_period(cls, v):
+        if v < 1.0:
+            raise ValueError("Period must be at least 1 year")
+        return v
 
     class Config:
         schema_extra = {
@@ -115,14 +156,13 @@ def daily_statistics(req: BoxplotRequest):
         )
         df_all = load_data(all_symbols, start, end, config=config_obj)
         returns_df = calculate_returns(df_all)
-
         boxplot_stats = generate_boxplot_data(returns_df)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Boxplot generation failed: {str(e)}"
         )
 
-    return {"status": "success", "boxplot_data": boxplot_stats}
+    return {"status": "success", "data": boxplot_stats}
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
@@ -5,9 +6,26 @@ from pathlib import Path
 
 from config import Config
 from anomaly.anomaly_detection import remove_anomalous_stocks
-from correlation.cluster_assets import get_cluster_labels
-from correlation.filter_hdbscan import filter_correlated_groups_hdbscan
+from correlation.hdbscan_clustering import (
+    filter_correlated_groups_hdbscan,
+    get_cluster_labels_hdbscan,
+)
 from pipeline.process_symbols import process_symbols
+from correlation.networkx_clustering import (
+    filter_correlated_groups_mst,
+    get_cluster_labels_mst,
+)
+from correlation.spectral_clustering import (
+    filter_correlated_groups_spectral,
+    get_cluster_labels_spectral,
+)
+from correlation.kmeans_clustering import (
+    filter_correlated_groups_kmeans,
+    get_cluster_labels_kmeans,
+)
+from changepoint.apply_bocpd import (
+    apply_bocpd,
+)
 from utils.portfolio_utils import normalize_weights, stacked_output
 from utils.data_utils import download_multi_ticker_data, process_input_files
 from utils.logger import logger
@@ -94,8 +112,8 @@ def calculate_returns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def preprocess_data(
-    returns_df: pd.DataFrame, 
-    config: Config
+    returns_df: pd.DataFrame,
+    config: Config,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Preprocess the returns DataFrame by applying optional anomaly and decorrelation filters.
@@ -107,14 +125,27 @@ def preprocess_data(
     Returns:
         Tuple[pd.DataFrame, Dict[str, Any]]: Filtered DataFrame and asset cluster map.
     """
-    # Create asset cluster map (independent of filtering)
-    asset_cluster_map = get_cluster_labels(
-        returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
-    )
+    # Create the asset cluster map using the selected method.
+    if config.clustering_type == "spectral":
+        asset_cluster_map = get_cluster_labels_spectral(
+            returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
+        )
+    elif config.clustering_type == "mst":
+        asset_cluster_map = get_cluster_labels_mst(returns_df=returns_df)
+    elif config.clustering_type == "hdbscan":
+        asset_cluster_map = get_cluster_labels_hdbscan(
+            returns_df=returns_df, cache_dir="optuna_cache", reoptimize=False
+        )
+    else:  # fallback to kmeans
+        asset_cluster_map = get_cluster_labels_kmeans(
+            returns_df=returns_df,
+            max_clusters=math.ceil(np.sqrt(len(returns_df.columns))),
+        )
 
-    filtered_returns_df = returns_df
+    # Start with a copy of the full returns DataFrame.
+    filtered_returns_df = returns_df.copy()
 
-    # Apply anomaly filter if configured
+    # Apply anomaly filter if configured.
     if config.use_anomaly_filter:
         logger.debug("Applying anomaly filter.")
         valid_symbols = remove_anomalous_stocks(
@@ -126,20 +157,40 @@ def preprocess_data(
     else:
         valid_symbols = returns_df.columns.tolist()
 
-    # Apply decorrelation filter if enabled
+    # Apply decorrelation filter if enabled.
     if config.use_decorrelation:
         logger.info("Filtering correlated assets...")
         valid_symbols = filter_correlated_assets(
-            filtered_returns_df, config, asset_cluster_map
+            filtered_returns_df,
+            config,
+            asset_cluster_map,
         )
-
+        # Ensure valid symbols exist in the current DataFrame.
         valid_symbols = [
             symbol for symbol in valid_symbols if symbol in filtered_returns_df.columns
         ]
 
-    filtered_returns_df = filtered_returns_df[valid_symbols]
+    filtered_returns_df = filtered_returns_df[valid_symbols].dropna(how="all")
 
-    return filtered_returns_df.dropna(how="all"), asset_cluster_map
+    # Adjust asset symbol list with Bayesian changepoint detection if enabled.
+    if config.use_regime_detection:
+        logger.info("Detecting current market regime...")
+
+        current_regime = apply_bocpd(
+            returns_df=filtered_returns_df,
+            plot=config.plot_changepoint,
+        )
+
+        logger.info(f"Current regime classification: {current_regime}")
+
+        if current_regime == "Bearish":
+            # If the market is bearish, add 'UUP' and 'USDU' to the valid symbols list.
+            valid_symbols += ["UUP", "USDU"]
+            # Then adjust portfolio vol limit
+            config.portfolio_max_vol = 0.12
+
+    # Drop rows with all NaNs.
+    return filtered_returns_df, asset_cluster_map
 
 
 def filter_correlated_assets(
@@ -148,32 +199,68 @@ def filter_correlated_assets(
     asset_cluster_map: Dict[str, int],
 ) -> List[str]:
     """
-    Apply mean reversion and decorrelation filters to return valid asset symbols.
-    Falls back to the original returns_df columns if filtering results in an empty list.
+    Apply decorrelation filtering based on asset clusters.
+
+    Args:
+        returns_df (pd.DataFrame): DataFrame with asset returns.
+        config (Config): Configuration object.
+        asset_cluster_map (Dict[str, int]): Clustering map produced by the chosen clustering method.
+
+    Returns:
+        List[str]: List of valid asset symbols after filtering.
     """
-    original_symbols = list(returns_df.columns)  # Preserve original symbols
+    original_symbols = list(returns_df.columns)
     trading_days_per_year = 252
     risk_free_rate_log_daily = np.log(1 + config.risk_free_rate) / trading_days_per_year
 
     try:
-        decorrelated_tickers = filter_correlated_groups_hdbscan(
-            returns_df=returns_df,
-            asset_cluster_map=asset_cluster_map,
-            risk_free_rate=risk_free_rate_log_daily,
-            plot=config.plot_clustering,
-            objective=config.optimization_objective,
-        )
-
+        if config.clustering_type == "spectral":
+            decorrelated_tickers = filter_correlated_groups_spectral(
+                returns_df=returns_df,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+                top_n=config.top_n_performers,
+            )
+        elif config.clustering_type == "mst":
+            decorrelated_tickers = filter_correlated_groups_mst(
+                returns_df=returns_df,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+                top_n=config.top_n_performers,
+            )
+        elif config.clustering_type == "hdbscan":
+            decorrelated_tickers = filter_correlated_groups_hdbscan(
+                returns_df=returns_df,
+                asset_cluster_map=asset_cluster_map,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+                top_n=config.top_n_performers,
+            )
+        elif config.clustering_type == "kmeans":
+            decorrelated_tickers = filter_correlated_groups_kmeans(
+                returns_df=returns_df,
+                risk_free_rate=risk_free_rate_log_daily,
+                plot=config.plot_clustering,
+                objective=config.optimization_objective,
+                top_n=config.top_n_performers,
+            )
+        else:
+            raise ValueError(f"Unknown clustering method: {config.clustering_type}")
         valid_symbols = [
             symbol for symbol in original_symbols if symbol in decorrelated_tickers
         ]
-
     except Exception as e:
-        logger.error(f"Correlation threshold optimization failed: {e}")
-        # Fall back to original symbols if optimization fails
+        logger.error(
+            f"Correlation threshold optimization failed using {config.clustering_type}: {e}"
+        )
+        logger.info(
+            "Decorrelation encountered an error. Falling back to original inputs."
+        )
         valid_symbols = original_symbols
 
-    # Ensure a non-empty list of symbols is returned
     if not valid_symbols:
         logger.warning("No valid symbols after filtering. Returning original symbols.")
         valid_symbols = original_symbols

@@ -60,14 +60,23 @@ def optimize_threshold_for_ticker(
         if np.isnan(kappa):
             kappa = 0.0
 
-        # Rolling volatility computation (30-day window, min 5 observations).
-        rolling_std_series = returns_series.rolling(window=30, min_periods=5).std()
-        rolling_volatility = np.nanmean(rolling_std_series)
-        median_volatility = np.nanmedian(rolling_std_series)
+        # Compute EWMA volatility using a span equivalent to ~30 days.
+        ewma_std_series = returns_series.ewm(span=30, min_periods=5).std()
+        rolling_volatility = np.nanmean(ewma_std_series)
+        median_volatility = np.nanmedian(ewma_std_series)
         if np.isnan(rolling_volatility):
             rolling_volatility = 0.0
         if np.isnan(median_volatility) or median_volatility == 0:
             median_volatility = 1.0
+
+        # Rolling volatility computation (30-day window, min 5 observations).
+        # rolling_std_series = returns_series.rolling(window=30, min_periods=5).std()
+        # rolling_volatility = np.nanmean(rolling_std_series)
+        # median_volatility = np.nanmedian(rolling_std_series)
+        # if np.isnan(rolling_volatility):
+        #     rolling_volatility = 0.0
+        # if np.isnan(median_volatility) or median_volatility == 0:
+        #     median_volatility = 1.0
 
         # Stability penalty: higher volatility reduces the score.
         stability_penalty = -rolling_volatility * 0.05
@@ -83,11 +92,17 @@ def optimize_threshold_for_ticker(
             extreme_volatility_penalty = 0.0
 
         # Meme stock penalty based on rolling z-scores.
-        rolling_mean = returns_series.rolling(window=30, min_periods=5).mean()
-        rolling_std = returns_series.rolling(window=30, min_periods=5).std()
+        # Use EWMA for rolling mean and std for the z-score calculation.
+        ewma_mean = returns_series.ewm(span=30, min_periods=5).mean()
+        ewma_std = returns_series.ewm(span=30, min_periods=5).std()
         z_score_series = (
-            ((returns_series - rolling_mean) / (rolling_std + 1e-8)).abs().fillna(0)
+            ((returns_series - ewma_mean) / (ewma_std + 1e-8)).abs().fillna(0)
         )
+        # rolling_mean = returns_series.rolling(window=30, min_periods=5).mean()
+        # rolling_std = returns_series.rolling(window=30, min_periods=5).std()
+        # z_score_series = (
+        #     ((returns_series - rolling_mean) / (rolling_std + 1e-8)).abs().fillna(0)
+        # )
         if len(z_score_series) > 0:
             perc_z = np.percentile(z_score_series, 95)
             meme_stock_penalty = -perc_z * 1.5 if not np.isnan(perc_z) else 0.0

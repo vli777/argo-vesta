@@ -1,4 +1,5 @@
 # File: objectives.py
+from typing import Optional
 import pyomo.environ as pyo
 import numpy as np
 import pandas as pd
@@ -9,11 +10,12 @@ def build_sharpe_model(
     mu: np.ndarray,
     target_sum: float,
     max_weight: float = 0.2,
+    min_weight: Optional[float] = None,
     gross_target: float = 1.3,
     allow_short: bool = False,
     vol_limit: float = None,  # Optional volatility constraint
     cvar_limit: float = None,  # Optional CVaR constraint (upper bound on CVaR)
-    min_return: float = None,  # Optional min returns
+    min_return: float = None,  # Optional minimum return constraint
     alpha: float = 0.05,  # Tail probability for CVaR (e.g., 5%)
     returns: pd.DataFrame = None,  # Historical returns (scenarios) needed if using CVaR
 ):
@@ -52,36 +54,46 @@ def build_sharpe_model(
 
     # Decision Variables: Portfolio Weights
     def weight_bounds(model, i):
-        return (-max_weight, max_weight) if allow_short else (0, max_weight)
+        if allow_short:
+            return (-max_weight, max_weight)
+        else:
+            # For long-only portfolios, use min_weight if provided, else 0.
+            lb = min_weight if min_weight is not None else 0.0
+            return (lb, max_weight)
 
     model.w = pyo.Var(model.assets, domain=pyo.Reals, bounds=weight_bounds)
 
-    # Constraint: Net Exposure - Weights Sum to Target
+    # Constraint: Weights Sum to Target
     model.weight_sum = pyo.Constraint(
         expr=sum(model.w[i] for i in model.assets) == target_sum
     )
 
-    # Constraint: Gross Exposure if allowing short positions
+    # Optional: Enforce a minimum weight for each asset (for long-only)
+    if not allow_short and min_weight is not None:
+
+        def min_weight_constraint(model, i):
+            return model.w[i] >= min_weight
+
+        model.min_weight_constraint = pyo.Constraint(
+            model.assets, rule=min_weight_constraint
+        )
+
+    # Gross Exposure Constraint for short selling:
     if allow_short:
-        model.z = pyo.Var(model.assets, domain=pyo.NonNegativeReals)
+        # Use a separate variable for absolute weight.
+        model.abs_w = pyo.Var(model.assets, domain=pyo.NonNegativeReals)
 
-        # Enforce z_i >= |w_i|
-        def abs_constraint_rule(model, i):
-            return model.z[i] >= model.w[i]
+        def abs_constraint_pos(model, i):
+            return model.abs_w[i] >= model.w[i]
 
-        model.abs_constraint_pos = pyo.Constraint(
-            model.assets, rule=abs_constraint_rule
-        )
+        model.abs_constraint_pos = pyo.Constraint(model.assets, rule=abs_constraint_pos)
 
-        def abs_constraint_rule_neg(model, i):
-            return model.z[i] >= -model.w[i]
+        def abs_constraint_neg(model, i):
+            return model.abs_w[i] >= -model.w[i]
 
-        model.abs_constraint_neg = pyo.Constraint(
-            model.assets, rule=abs_constraint_rule_neg
-        )
-        # Now, enforce gross exposure constraint (e.g., 1.3)
+        model.abs_constraint_neg = pyo.Constraint(model.assets, rule=abs_constraint_neg)
         model.gross_exposure = pyo.Constraint(
-            expr=sum(model.z[i] for i in model.assets) <= gross_target
+            expr=sum(model.abs_w[i] for i in model.assets) <= gross_target
         )
 
     # Portfolio Return Expression (using expected returns)
@@ -101,12 +113,12 @@ def build_sharpe_model(
     # Portfolio Volatility Expression
     model.port_vol = pyo.Expression(expr=pyo.sqrt(model.port_variance + 1e-8))
 
-    # Objective: Maximize Sharpe Ratio (minimizing negative Sharpe ratio)
+    # Objective: Maximize Sharpe Ratio (minimize negative Sharpe)
     model.obj = pyo.Objective(
         expr=-model.port_return / model.port_vol, sense=pyo.minimize
     )
 
-    # Optional Returns Constraint, assuming mu is a pd.Series:
+    # Optional Minimum Return Constraint
     if min_return is not None:
         mu_array = mu.to_numpy()
         model.min_return = pyo.Constraint(
@@ -124,8 +136,8 @@ def build_sharpe_model(
         model.obs = pyo.Set(initialize=range(T))
         # q[j] are slack variables (excess loss over z) and must be nonnegative
         model.q = pyo.Var(model.obs, domain=pyo.NonNegativeReals)
-        # z represents the VaR (can be any real number)
-        model.z = pyo.Var(domain=pyo.Reals)
+        # Use a distinct variable for VaR to avoid conflict with other variables.
+        model.VaR = pyo.Var(domain=pyo.Reals)
         # For each scenario j, ensure:
         #    q[j] >= (- sum_i w[i]*returns.iloc[j, i]) - z
         # where - sum_i w[i]*returns.iloc[j, i] is the loss in scenario j.
@@ -133,11 +145,12 @@ def build_sharpe_model(
         for j in model.obs:
             model.q_constraints.add(
                 model.q[j]
-                >= -sum(model.w[i] * returns.iloc[j, i] for i in model.assets) - model.z
+                >= -sum(model.w[i] * returns.iloc[j, i] for i in model.assets)
+                - model.VaR
             )
         #    CVaR = z + (1/(alpha * T)) * sum_j q[j] <= cvar_limit
         model.cvar_constraint = pyo.Constraint(
-            expr=model.z + (1 / (alpha * T)) * sum(model.q[j] for j in model.obs)
+            expr=model.VaR + (1 / (alpha * T)) * sum(model.q[j] for j in model.obs)
             <= cvar_limit
         )
 

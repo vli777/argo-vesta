@@ -9,9 +9,8 @@ import pandas as pd
 
 from config import Config
 from plotly_graphs import plot_graphs
-from portfolio_optimization import run_optimization_and_save
+from pipeline.portfolio_optimization import run_optimization_and_save
 from apply_reversion import (
-    apply_ou_reversion,
     apply_z_reversion,
     build_final_result_dict,
     compute_performance_results,
@@ -19,7 +18,13 @@ from apply_reversion import (
 from correlation.correlation_utils import compute_lw_covariance
 from risk_constraints import apply_risk_constraints
 from models.optimize_portfolio import estimated_portfolio_volatility
-from pipeline.data_processing import calculate_returns, load_data, load_symbols, perform_post_processing, preprocess_data
+from pipeline.data_processing import (
+    calculate_returns,
+    load_data,
+    load_symbols,
+    perform_post_processing,
+    preprocess_data,
+)
 from utils.logger import logger
 from utils.performance_metrics import conditional_var
 from utils.caching_utils import cleanup_cache
@@ -57,11 +62,21 @@ def run_pipeline(
     # Initialize structures
     stack: Dict[str, Any] = {}
     dfs: Dict[str, Any] = {}
-    active_models = [k for k, v in config.models.items() if v]
-    sorted_time_periods = sorted(active_models, reverse=True)
 
-    # Determine date range based on the longest period
+    # Process the models dictionary (keys are period strings) into floats.
+    active_models = [float(k) for k, v in config.models.items() if v]
+    sorted_time_periods = sorted(active_models, reverse=True)
+    # Use the API-provided period (from config.period) as the longest period.
+    # api_longest = config.period  # API-specified longest period (min 1.0)
+    # if (api_longest not in sorted_time_periods) or (
+    #     api_longest > sorted_time_periods[0]
+    # ):
+    #     if api_longest in sorted_time_periods:
+    #         sorted_time_periods.remove(api_longest)
+    #     sorted_time_periods.insert(0, api_longest)
     longest_period = sorted_time_periods[0]
+
+    # Determine the full date range from the longest period.
     start_long, end_long = calculate_start_end_dates(longest_period)
     dfs["start"] = start_long
     dfs["end"] = end_long
@@ -75,10 +90,11 @@ def run_pipeline(
 
     # Calculate log returns on multi index df
     returns_df = calculate_returns(df_all)
-    
+
     # Apply optional preprocessing (anomaly and decorrelation filters)
     filtered_returns_df, asset_cluster_map = preprocess_data(returns_df, config)
 
+    # Update valid symbols post-filtering
     valid_symbols = list(filtered_returns_df.columns)
     if not valid_symbols:
         logger.warning("No valid symbols remain after filtering. Aborting pipeline.")
@@ -99,9 +115,9 @@ def run_pipeline(
 
     # Iterate through each time period and perform optimization
     for period in sorted_time_periods:
-        if period != longest_period:
-            config.plot_anomalies = False
-            config.plot_clustering = False
+        # For non-longest periods, temporarily disable anomaly and clustering plots.
+        config.plot_anomalies if period == longest_period else False
+        config.plot_clustering if period == longest_period else False
 
         start, end = calculate_start_end_dates(period)
         logger.debug(f"Processing period: {period} from {start} to {end}")
@@ -130,7 +146,7 @@ def run_pipeline(
         df_period = df_period.reindex(
             index=all_dates, columns=valid_symbols, fill_value=np.nan
         )
-        df_period.columns.name = None  # Remove column name (Ticker)
+        df_period.columns.name = None  # Remove column name
         df_period.index.name = "Date"  # Set index name for clarity
 
         # Prevent removal of stocks due to shorter histories
@@ -145,6 +161,9 @@ def run_pipeline(
         if period == longest_period:
             logger.info(f"Running optimization with {len(valid_symbols)} assets.")
 
+        # For the longest period, enable plotting if configured.
+        plot_flag = config.plot_optimization and (period == longest_period)
+
         run_optimization_and_save(
             df=df_period,
             config=config,
@@ -153,7 +172,7 @@ def run_pipeline(
             symbols=valid_symbols,
             stack=stack,
             years=period,
-            plot=config.plot_optimization and period == longest_period,
+            plot=plot_flag,
         )
 
     logger.info("Post-processing optimization results...")
@@ -163,7 +182,9 @@ def run_pipeline(
         return {}
 
     # Post-processing of optimization results
-    normalized_avg_weights = perform_post_processing(stack_weights=stack, config=config, period_weights=None)
+    normalized_avg_weights = perform_post_processing(
+        stack_weights=stack, config=config, period_weights=None
+    )
     if not normalized_avg_weights:
         return {}
 
@@ -269,9 +290,15 @@ def run_pipeline(
     final_weights_series = pd.Series(final_weights)
     if not (final_weights_series.equals(normalized_avg_weights)):
         if config.portfolio_max_vol is not None:
-            combined_models += f" + σ <= {config.portfolio_max_vol:.2f}"
+            combined_models += f" + σ <= {float(config.portfolio_max_vol):.2f}"
         if config.portfolio_max_cvar is not None:
-            combined_models += f" + CVaR <= {config.portfolio_max_cvar:.2f}"
+            combined_models += f" + CVaR <= {float(config.portfolio_max_cvar):.2f}"
+
+    if config.use_global_optimization:
+        if config.global_optimization_type == "annealing":
+            combined_models += " + annealing"
+        elif config.global_optimization_type == "diffusion":
+            combined_models += " + diffusion"
 
     # Sort symbols and filter DataFrame accordingly
     sorted_symbols = sorted(final_weights.keys())
@@ -317,29 +344,16 @@ def run_pipeline(
 
     # --- Mean Reversion Branches ---
     if config.use_reversion:
-        if config.reversion_type == "z":
-            final_result_dict = apply_z_reversion(
-                dfs=dfs,
-                normalized_avg_weights=final_weights,
-                combined_input_files=combined_input_files,
-                combined_models=f"{combined_models} + z-reversion",
-                sorted_time_periods=sorted_time_periods,
-                config=config,
-                asset_cluster_map=asset_cluster_map,
-                returns_df=returns_df,
-            )
-        else:
-            final_result_dict = apply_ou_reversion(
-                dfs=dfs,
-                normalized_avg_weights=final_weights,
-                combined_input_files=combined_input_files,
-                combined_models=f"{combined_models} + ou-reversion",
-                sorted_time_periods=sorted_time_periods,
-                config=config,
-                # asset_cluster_map=asset_cluster_map,
-                returns_df=returns_df,
-                allow_short=config.allow_short,
-            )
+        final_result_dict = apply_z_reversion(
+            dfs=dfs,
+            normalized_avg_weights=final_weights,
+            combined_input_files=combined_input_files,
+            combined_models=f"{combined_models} + z-reversion",
+            sorted_time_periods=sorted_time_periods,
+            config=config,
+            asset_cluster_map=asset_cluster_map,
+            returns_df=returns_df,
+        )
 
     # Optional plotting (only on local runs)
     if run_local:
@@ -348,7 +362,9 @@ def run_pipeline(
             cumulative_returns=final_result_dict["cumulative_returns"],
             return_contributions=final_result_dict["return_contributions"],
             risk_contributions=final_result_dict["risk_contributions"],
-            config=config,
+            plot_contribution=config.plot_contribution,
+            plot_cumulative_returns=config.plot_cumulative_returns,
+            plot_daily_returns=config.plot_daily_returns,
             symbols=final_result_dict["symbols"],
             theme="light",
         )

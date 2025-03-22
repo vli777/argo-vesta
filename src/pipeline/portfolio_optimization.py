@@ -16,9 +16,9 @@ from utils.caching_utils import (
 )
 from utils.portfolio_utils import (
     convert_weights_to_series,
-    estimate_optimal_num_assets,
     limit_portfolio_size,
     normalize_weights,
+    optimal_portfolio_size,
 )
 
 # Dispatch table mapping model names to their corresponding optimization functions
@@ -106,6 +106,7 @@ def run_optimization_and_save(
         min_weight = config.min_weight
         max_weight = config.max_weight
         optimization_objective = config.optimization_objective
+        cluster_method = config.clustering_type
         allow_short = config.allow_short
         max_gross_exposure = config.max_gross_exposure
         risk_free_rate = config.risk_free_rate
@@ -130,6 +131,7 @@ def run_optimization_and_save(
             "use_annealing": use_annealing,
             "use_diffusion": use_diffusion,
             "plot": plot,
+            "cluster_method": cluster_method,
         }
 
         try:
@@ -150,15 +152,17 @@ def run_optimization_and_save(
             current_vol: float = estimated_portfolio_volatility(
                 weights_array, cov_annual.to_numpy()
             )
-
-            portfolio_max_size = estimate_optimal_num_assets(
-                vol_limit=(
-                    config.portfolio_max_vol
-                    if config.portfolio_max_vol
-                    else current_vol
-                ),
-                portfolio_max_size=config.portfolio_max_size,
-            ) or len(weights)
+            try:
+                portfolio_max_size = (
+                    config.portfolio_max_size
+                    if config.portfolio_max_size is not None
+                    else optimal_portfolio_size(
+                        returns=asset_returns, plot=config.plot_marginal_diversification
+                    )
+                )
+            except Exception:  # Handles errors in `optimal_portfolio_size`
+                portfolio_max_size = len(weights)
+            logger.info(f"portfolio max size: {portfolio_max_size}")
 
             weights = convert_weights_to_series(weights, index=mu_annual.index)
             normalized_weights = normalize_weights(weights, config.min_weight)
