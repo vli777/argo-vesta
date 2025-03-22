@@ -32,9 +32,11 @@ def detect_regime_change(
         feature_series,
         hazard_rate=1 / 15,
         mu0=0.001,
+        kappa0=0.05,
         alpha0=3.0,
         beta0=0.0005,
-        kappa0=0.05,
+        epsilon=1e-8,
+        truncation_threshold=1e-4,
     )
 
     T = len(feature_series)
