@@ -42,7 +42,7 @@ class Config:
     use_regime_detection: bool
     clustering_type: Optional[str]
     top_n_performers: Optional[int]
-    use_reversion: bool    
+    use_reversion: bool
     optimization_objective: Optional[str]
     use_global_optimization: bool
     global_optimization_type: Optional[str]
@@ -90,7 +90,7 @@ class Config:
             "use_regime_detection": False,
             "clustering_type": "spectral",
             "top_n_performers": None,
-            "use_reversion": False,            
+            "use_reversion": False,
             "optimization_objective": "sharpe",
             "use_global_optimization": False,
             "global_optimization_type": None,
