@@ -1,86 +1,125 @@
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+from vis.utils import hex_to_rgba
 
 
 def plot_bocpd_result(
     R,
-    title="BOCPD Run-Length Probabilities",
+    feature_series=None,
+    series_title = "Feature Series",
+    title="BOCPD Run-Length Probabilities and Feature Series",
     dates=None,
     run_length_range=None,
     regime_boundaries=None,
     regime_labels=None,
 ):
     """
-    Plot the BOCPD run-length probability matrix using Plotly and overlay regime segments.
-
+    Plot the BOCPD run-length probability matrix along with the input feature series.
+    The figure has two subplots:
+      - Top: The feature series over time.
+      - Bottom: The run-length probability heatmap using the "sunset" color scale.
+    Regime segments labeled "Bullish" or "Bearish" are overlaid as vertical rectangles.
+    Neutral regimes are not labeled.
+    
+    Note: The diagonal line in the heatmap is expected because in BOCPD,
+          if no change point is detected the run length increases by one at every time step,
+          forming a diagonal; a reset (change point) breaks this pattern.
+    
     Parameters:
       R: 2D numpy array (run-length probability matrix) with shape (T+1, T+1).
          Row 0 is the prior; rows 1...T correspond to each observation.
-      title: Title of the plot.
+      feature_series: Optional pandas Series for the input feature (e.g., rolling mean returns).
+      series_title: Title for the series subplot figure.
+      title: Title for the figure.
       dates: Optional sequence (e.g., pd.Index) to use for the x-axis.
-             If provided, the function will plot R[1:,1:] so that the first observation aligns with the first date.
       run_length_range: Optional list/array for the y-axis (run lengths). Defaults to range(R.shape[1]).
-      regime_boundaries: Optional list of integer indices (0 to T) defining segment boundaries.
+      regime_boundaries: Optional list of integer indices defining segment boundaries.
       regime_labels: Optional list of labels (strings) for each regime segment.
-
+    
     Returns:
       fig: A Plotly Figure object.
     """
-    T = R.shape[0] - 1  # T observations
+    # Determine the x-axis values for both subplots.
     if dates is not None:
-        # Use provided dates for the x-axis; drop the first row and first column of R
-        time_range = list(dates)
-        R_plot = R[1:, 1:]
-        if run_length_range is None:
-            run_length_range = list(range(1, R.shape[1]))
+        x_vals = list(dates)
+    elif feature_series is not None:
+        x_vals = list(feature_series.index)
     else:
-        time_range = list(range(R.shape[0]))
-        R_plot = R
-        if run_length_range is None:
-            run_length_range = list(range(R.shape[1]))
-
-    fig = px.imshow(
-        R_plot,
-        labels=dict(x="Time", y="Run Length", color="Probability"),
-        x=time_range,
+        x_vals = list(range(R.shape[0]))
+    
+    # Prepare the heatmap data: drop the first row and column.
+    R_plot = R[1:, 1:]
+    if run_length_range is None:
+        run_length_range = list(range(1, R.shape[1]))
+    
+    # Create a subplot figure with 2 rows.
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.3, 0.7],
+        vertical_spacing=0.05,
+        subplot_titles=(series_title, "Run-Length Probability Heatmap")
+    )
+    
+    # Top subplot: add the feature series if provided.
+    if feature_series is not None:
+        # Use x_vals computed above.
+        fig.add_trace(
+            go.Scatter(x=x_vals, y=feature_series.values, mode='lines', name='Feature Series'),
+            row=1, col=1
+        )
+        fig.update_yaxes(title_text="Feature Value", row=1, col=1)
+    
+    # Bottom subplot: add the heatmap.
+    heatmap = go.Heatmap(
+        z=R_plot,
+        x=x_vals,
         y=run_length_range,
-        aspect="auto",
+        colorscale=px.colors.sequential.Sunset,
+        colorbar=dict(title="Probability")
+    )
+    fig.add_trace(heatmap, row=2, col=1)
+    fig.update_yaxes(title_text="Run Length", row=2, col=1)
+    fig.update_xaxes(title_text="Time", row=2, col=1)
+    
+    # Update overall layout for a light background.
+    fig.update_layout(
+        template="plotly_white",
         title=title,
     )
-    fig.update_xaxes(side="bottom")
-    fig.update_layout(
-        coloraxis_colorbar=dict(title="Probability"),
-        xaxis_title="Time",
-        yaxis_title="Run Length",
-    )
-
-    # If regime segmentation info is provided, overlay the regime labels as vertical bands.
+    
+    # Use Plotly's qualitative palette for regime colors.
+    palette = px.colors.qualitative.Plotly
+    bearish_color = palette[1]  # typically red
+    bullish_color = palette[2]  # typically green
+    regime_colors = {
+        "Bullish": hex_to_rgba(bullish_color),
+        "Bearish": hex_to_rgba(bearish_color),
+    }
+    
+    # Overlay regime segmentation as vertical rectangles (only for Bullish and Bearish).
     if regime_boundaries is not None and regime_labels is not None:
-        # Define colors for different regimes.
-        regime_colors = {
-            "Bullish": "rgba(0,255,0,0.2)",
-            "Bearish": "rgba(255,0,0,0.2)",
-            "Neutral": "rgba(128,128,128,0.2)",
-        }
-        # Loop over each regime segment. Note: regime_boundaries is expected to have length n+1,
-        # and regime_labels to have length n.
         for i in range(len(regime_boundaries) - 1):
             start_idx = regime_boundaries[i]
             end_idx = regime_boundaries[i + 1]
-            # Ensure indices are within the time_range length.
-            if start_idx < len(time_range) and end_idx - 1 < len(time_range):
-                x0 = time_range[start_idx]
-                x1 = time_range[end_idx - 1]
+            if start_idx < len(x_vals) and (end_idx - 1) < len(x_vals):
+                x0 = x_vals[start_idx]
+                x1 = x_vals[end_idx - 1]
             else:
                 continue
             label = regime_labels[i]
-            fillcolor = regime_colors.get(label, "rgba(128,128,128,0.2)")
-            fig.add_vrect(
-                x0=x0,
-                x1=x1,
-                fillcolor=fillcolor,
-                opacity=0.3,
-                line_width=0,
-                annotation_text=label,
-                annotation_position="top left",
-            )
+            if label in ["Bullish", "Bearish"]:
+                fig.add_vrect(
+                    x0=x0, x1=x1,
+                    fillcolor=regime_colors[label],
+                    opacity=0.7,
+                    line_width=0,
+                    annotation_text=label,
+                    annotation_position="top left",
+                    layer="below"
+                )
+            # For neutral regimes, skip adding any vertical rectangle.
+    
     return fig
