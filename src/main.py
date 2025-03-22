@@ -9,7 +9,6 @@ from reversion.reversion_plots import (
 )
 from utils.caching_utils import load_parameters_from_pickle
 from utils.logger import logger
-from utils.portfolio_utils import estimate_optimal_num_assets
 
 
 def pipeline_runner(
@@ -35,12 +34,12 @@ def pipeline_runner(
         config.portfolio_max_size, int
     ):
         raise TypeError("portfolio_max_size must be an integer")
-    elif config.portfolio_max_size is None:
-        # If not provided, estimate the optimal portfolio size.
-        config.portfolio_max_size = estimate_optimal_num_assets(
-            vol_limit=config.portfolio_max_vol,
-            portfolio_max_size=config.portfolio_max_size,
-        )
+    # elif config.portfolio_max_size is None:
+    #     # If not provided, estimate the optimal portfolio size.
+    #     config.portfolio_max_size = estimate_optimal_num_assets(
+    #         vol_limit=config.portfolio_max_vol,
+    #         portfolio_max_size=config.portfolio_max_size,
+    #     )
 
     symbols = initial_symbols
     previous_top_symbols = set()
@@ -100,12 +99,7 @@ def pipeline_runner(
         final_result = result
 
     # Plot reversion signals if configured
-    if (
-        config.use_reversion
-        and config.reversion_type == "z"
-        and config.plot_reversion
-        and not reversion_plotted
-    ):
+    if config.use_reversion and config.plot_reversion and not reversion_plotted:
         reversion_cache_file = (
             f"optuna_cache/reversion_cache_{config.optimization_objective}.pkl"
         )

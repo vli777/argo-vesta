@@ -11,7 +11,6 @@ from config import Config
 from plotly_graphs import plot_graphs
 from pipeline.portfolio_optimization import run_optimization_and_save
 from apply_reversion import (
-    apply_ou_reversion,
     apply_z_reversion,
     build_final_result_dict,
     compute_performance_results,
@@ -95,6 +94,7 @@ def run_pipeline(
     # Apply optional preprocessing (anomaly and decorrelation filters)
     filtered_returns_df, asset_cluster_map = preprocess_data(returns_df, config)
 
+    # Update valid symbols post-filtering
     valid_symbols = list(filtered_returns_df.columns)
     if not valid_symbols:
         logger.warning("No valid symbols remain after filtering. Aborting pipeline.")
@@ -344,29 +344,16 @@ def run_pipeline(
 
     # --- Mean Reversion Branches ---
     if config.use_reversion:
-        if config.reversion_type == "z":
-            final_result_dict = apply_z_reversion(
-                dfs=dfs,
-                normalized_avg_weights=final_weights,
-                combined_input_files=combined_input_files,
-                combined_models=f"{combined_models} + z-reversion",
-                sorted_time_periods=sorted_time_periods,
-                config=config,
-                asset_cluster_map=asset_cluster_map,
-                returns_df=returns_df,
-            )
-        else:
-            final_result_dict = apply_ou_reversion(
-                dfs=dfs,
-                normalized_avg_weights=final_weights,
-                combined_input_files=combined_input_files,
-                combined_models=f"{combined_models} + ou-reversion",
-                sorted_time_periods=sorted_time_periods,
-                config=config,
-                # asset_cluster_map=asset_cluster_map,
-                returns_df=returns_df,
-                allow_short=config.allow_short,
-            )
+        final_result_dict = apply_z_reversion(
+            dfs=dfs,
+            normalized_avg_weights=final_weights,
+            combined_input_files=combined_input_files,
+            combined_models=f"{combined_models} + z-reversion",
+            sorted_time_periods=sorted_time_periods,
+            config=config,
+            asset_cluster_map=asset_cluster_map,
+            returns_df=returns_df,
+        )
 
     # Optional plotting (only on local runs)
     if run_local:

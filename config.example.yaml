@@ -21,6 +21,7 @@ allow_short: bool # Whether to allow shorting (WIP)
 max_gross_exposure: float # Portfolio max gross exposure constraint when shorting is enabled
 use_global_optimization: bool # Uses metaheuristics to search for a global optimum 
 global_optimization_type: str # Specify type of metaheuristic to use e.g. 'annealing', 'diffusion'
+optimization_objective: str # e.g. 'sharpe', 'omega', 'aggro'
 
 plot_daily_returns: bool # Whether to plot daily returns
 plot_cumulative_returns: bool # Whether to plot cumulative returns
@@ -29,13 +30,15 @@ plot_clustering: bool # Where to plot hierarchical clustering dendrogram
 plot_anomalies: bool # Whether to plot anomalies detected by Kalman filter
 plot_reversion: bool # Whether to plot mean reversion parameters
 plot_optimization: bool # Whether to plot the optimization search space
+plot_changepoint: bool # Whether to plot the regime change point graph 
+plot_marginal_diversification: bool # Whether to plot the marginal diversification values for optimal portfolio size
 
 use_anomaly_filter: bool # Whether to filter assets with anomalous returns
 use_decorrelation: bool # Whether to filter correlated assets
+use_regime_detection: bool # Whether to adjust asset inputs when a regime change signal is detected
 clustering_type: str # Either 'hdbscan', 'spectral', 'mst', default 'spectral'
 top_n_performers: int # Manual override of how many top performers to select from each cluster
 use_reversion: bool # Whether to adjust weights with mean reversion
-reversion_type: str # Either 'z' for z-score based, or 'ou' for heat potential with OU process, default 'ou'
 
 test_mode: bool # Whether to enable test mode
 test_data_visible_pct: float # Percentage of test data to show

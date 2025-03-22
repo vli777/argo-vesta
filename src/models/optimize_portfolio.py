@@ -154,7 +154,7 @@ def run_global_optimization(
         result = multi_seed_dual_annealing(
             penalized_obj,
             bounds=bounds,
-            num_runs=10,
+            num_runs=3,
             maxiter=10000,
             initial_temp=10000,
             visit=10,
@@ -173,7 +173,7 @@ def run_global_optimization(
         result = multi_seed_diffusion(
             penalized_obj,
             bounds=bounds,
-            num_runs=10,
+            num_runs=3,
             popsize=15,
             maxiter=10000,
             mutation=(0.5, 1),
@@ -478,7 +478,11 @@ def optimize_weights_objective(
         bounds=bounds,
         constraints=constraints,
         callback=callback,
-        options={"maxiter": 1000, "ftol": 1e-9, "eps": 1e-8},
+        options={
+            "maxiter": 20000,
+            # "ftol": 1e-9,
+            # "eps": 1e-8
+        },
     )
     if not result.success:
         raise ValueError("Optimization failed: " + result.message)

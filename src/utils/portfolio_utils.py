@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Tuple, Union
 from collections import defaultdict
 import numpy as np
 import pandas as pd
+from kneed import KneeLocator
+import plotly.express as px
 
 from .logger import logger
 
@@ -325,49 +327,72 @@ def limit_portfolio_size(
     return limited_weights
 
 
-def estimate_optimal_num_assets(
-    vol_limit: float, portfolio_max_size: Optional[int]
-) -> int:
-    """
-    Determine the optimal number of assets in a portfolio using the "volatility squared" rule.
-
-    The rule suggests that the ideal number of assets (N*) in a portfolio is approximately:
-        N* ≈ (vol_limit * 100)^2
-    where:
-      - vol_limit represents the target portfolio volatility (e.g., 0.12 for 12%).
-      - The intuition is that portfolio variance reduction through diversification follows
-        a diminishing returns pattern, and this formula provides a balance between risk
-        reduction and over-diversification.
-
-    Practical Considerations:
-    - The computed N* is **rounded** to the nearest integer.
-    - The number of assets is **bounded** between:
-        - A minimum of 1 (to ensure at least one asset is included).
-        - A maximum defined by `portfolio_max_size` (user-defined upper limit), if provided.
-    - If `vol_limit` is **not set or invalid**, it falls back to `portfolio_max_size` (or 20 as default).
-
-    Args:
-        vol_limit (float): The target portfolio volatility constraint (e.g., 0.12 for 12%).
-        portfolio_max_size (Optional[int]): The target portfolio max n assets size (can be `None`).
-
-    Returns:
-        int: The optimal number of assets to include in the portfolio.
-    """
-    if vol_limit is None or vol_limit <= 0:
-        return portfolio_max_size  # Fallback to user-defined max size
-
-    # Compute optimal number of assets
-    optimal_n = round((round(vol_limit, 2) * 100) ** 2)
-
-    # Apply constraints: Ensure it does not exceed max size and is at least 1
-    optimal_n = max(optimal_n, 1)  # Ensure at least 1 asset
-    if portfolio_max_size is not None:
-        optimal_n = min(
-            optimal_n, portfolio_max_size
-        )  # Apply upper limit only if defined
-
-    logger.debug(
-        f"Using optimal portfolio size: {optimal_n} assets (vol_limit={vol_limit:.2f})"
+def marginal_diversification_plot(selected_assets, diversification_values):
+    df = pd.DataFrame(
+        {
+            "Asset": selected_assets,
+            "Marginal Diversification Gain": diversification_values,
+            "Cumulative Diversification": np.cumsum(diversification_values),
+        }
     )
+
+    fig = px.bar(
+        df,
+        x="Asset",
+        y="Marginal Diversification Gain",
+        title="Marginal Diversification Value per Asset",
+        labels={"Marginal Diversification Gain": "Marginal Diversification Value"},
+    )
+    fig.update_layout(xaxis_tickangle=-45)
+    fig.show()
+
+
+def optimal_portfolio_size(returns, plot=True):
+    covariance = returns.cov()
+    assets = returns.columns.tolist()
+
+    selected_assets = []
+    diversification_values = []
+    remaining_assets = set(assets)
+    current_cov = None
+
+    for _ in range(len(assets)):
+        best_asset = None
+        best_div_gain = -np.inf
+
+        for asset in remaining_assets:
+            trial_assets = selected_assets + [asset]
+            trial_cov = covariance.loc[trial_assets, trial_assets]
+            eigenvalues = np.linalg.eigvalsh(trial_cov)
+            normalized_eig = eigenvalues / np.sum(eigenvalues)
+            trial_hhi = 1.0 / np.sum(normalized_eig**2)
+
+            if current_cov is None:
+                div_gain = trial_hhi
+            else:
+                current_eigen = np.linalg.eigvalsh(current_cov)
+                current_norm_eig = current_eigen / np.sum(current_eigen)
+                current_hhi = 1.0 / np.sum(current_norm_eig**2)
+                div_gain = trial_hhi - current_hhi
+
+            if div_gain > best_div_gain:
+                best_div_gain = div_gain
+                best_asset = asset
+                best_trial_cov = trial_cov
+
+        selected_assets.append(best_asset)
+        diversification_values.append(best_div_gain)
+        remaining_assets.remove(best_asset)
+        current_cov = best_trial_cov
+
+    cumulative_div = np.cumsum(diversification_values)
+    x = range(1, len(cumulative_div) + 1)
+    kn = KneeLocator(x, cumulative_div, curve="concave", direction="increasing")
+    optimal_n = kn.knee if kn.knee else len(assets)
+
+    if plot:
+        marginal_diversification_plot(
+            selected_assets[:optimal_n], diversification_values[:optimal_n]
+        )
 
     return optimal_n
