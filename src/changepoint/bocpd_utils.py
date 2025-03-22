@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 
-def compute_regime_labels(feature_series: pd.Series, R) -> list:
+def compute_regime_labels(feature_series: pd.Series, R, threshold_multiplier: float = 0.5) -> list:
     """
     Computes regime labels per observation given a feature series and BOCPD matrix.
     Returns a list of labels ("Bullish", "Bearish", "Neutral") for each observation.
@@ -15,8 +15,9 @@ def compute_regime_labels(feature_series: pd.Series, R) -> list:
     # Default thresholds: using half the standard deviation around the mean.
     mean_val = feature_series.mean()
     stdev = feature_series.std()
-    bullish_threshold = mean_val + 0.5 * stdev
-    bearish_threshold = mean_val - 0.5 * stdev
+    threshold = threshold_multiplier * stdev
+    bullish_threshold = mean_val + threshold
+    bearish_threshold = mean_val - threshold
 
     labels = []
     for i in range(len(regime_boundaries) - 1):

@@ -12,6 +12,7 @@ def detect_regime_change(
     plot: bool = False,
     bullish_threshold: float = None,
     bearish_threshold: float = None,
+    threshold_multiplier: float = 0.5,
     bocpd_params: dict = None,
 ) -> str:
     """
@@ -36,6 +37,8 @@ def detect_regime_change(
         if "hazard_inv" in bocpd_params:
             bocpd_params["hazard_rate0"] = 1 / bocpd_params["hazard_inv"]
             del bocpd_params["hazard_inv"]
+        if "threshold_multiplier" in bocpd_params:
+            del bocpd_params["threshold_multiplier"]
 
     R_matrix = bocpd(data=feature_series, **bocpd_params)
     T = len(feature_series)
@@ -43,8 +46,9 @@ def detect_regime_change(
     if bullish_threshold is None or bearish_threshold is None:
         mean_val = feature_series.mean()
         stdev = feature_series.std()
-        bullish_threshold = mean_val + 0.5 * stdev
-        bearish_threshold = mean_val - 0.5 * stdev
+        threshold = threshold_multiplier * stdev
+        bullish_threshold = mean_val + threshold
+        bearish_threshold = mean_val - threshold
 
     most_likely_run = np.argmax(R_matrix[1:], axis=1)
     change_points = list(np.where(np.diff(most_likely_run) < 0)[0] + 1)
@@ -109,6 +113,7 @@ def apply_bocpd(
         plot=plot,
         bullish_threshold=bullish_threshold,
         bearish_threshold=bearish_threshold,
+        threshold_multiplier=params["threshold_multiplier"],
         bocpd_params=params,
     )
     return current_regime

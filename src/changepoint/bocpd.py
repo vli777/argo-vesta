@@ -3,6 +3,8 @@ import pandas as pd
 from scipy.stats import t
 from sklearn.linear_model import BayesianRidge
 
+from utils import logger
+
 
 def bocpd(
     data: np.ndarray,
@@ -43,7 +45,7 @@ def bocpd(
 
     hazard_model = BayesianRidge()
     run_lengths = np.array([0])
-    hazard_rate = 1 / 15  # initial default hazard rate
+    hazard_rate = 1 / 50  # initial default hazard rate
 
     for t_idx in range(1, T + 1):
         x = data.iloc[t_idx - 1]
@@ -67,8 +69,8 @@ def bocpd(
         else:
             hazard_rate = hazard_rate0
 
-        if t_idx % 20 == 0:
-            print(f"t = {t_idx}, hazard_rate = {hazard_rate:.5f}")
+        # if t_idx % 20 == 0:
+        #     logger.info(f"t = {t_idx}, hazard_rate = {hazard_rate:.5f}")
 
         prev_R = R[t_idx - 1, : len(run_lengths)]
 
