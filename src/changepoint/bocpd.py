@@ -41,8 +41,8 @@ def bocpd(data, hazard_rate=1 / 100, mu0=0.0, kappa0=1.0, alpha0=1.0, beta0=1.0)
         cp_prob = np.sum(prev_R * pred_probs * hazard_rate)
 
         R[t_idx, 0] = cp_prob
-        R[t_idx, 1:t_idx + 1] = growth_probs
-        R[t_idx, :t_idx + 1] /= np.sum(R[t_idx, :t_idx + 1])  # normalize
+        R[t_idx, 1 : t_idx + 1] = growth_probs
+        R[t_idx, : t_idx + 1] /= np.sum(R[t_idx, : t_idx + 1])  # normalize
 
         # Update the posterior parameters vectorized.
         new_mu = np.empty(t_idx + 1)
@@ -60,7 +60,9 @@ def bocpd(data, hazard_rate=1 / 100, mu0=0.0, kappa0=1.0, alpha0=1.0, beta0=1.0)
         new_mu[1:] = (kappa_vec * mu_vec + x) / (kappa_vec + 1)
         new_kappa[1:] = kappa_vec + 1
         new_alpha[1:] = alpha_vec + 0.5
-        new_beta[1:] = beta_vec + 0.5 * (kappa_vec / (kappa_vec + 1)) * (x - mu_vec) ** 2
+        new_beta[1:] = (
+            beta_vec + 0.5 * (kappa_vec / (kappa_vec + 1)) * (x - mu_vec) ** 2
+        )
 
         # Update parameter vectors for the next iteration.
         mu_vec, kappa_vec, alpha_vec, beta_vec = new_mu, new_kappa, new_alpha, new_beta

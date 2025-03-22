@@ -252,7 +252,7 @@ def nested_clustered_optimization(
         intra_weights.loc[cluster_assets, cluster] = weights
 
         # logger.info(f"Intra-cluster weights:\n{intra_weights}")
-        
+
         if np.all(np.isclose(intra_weights, 0.0)):
             logger.warning("intra-cluster weights are all zero")
 

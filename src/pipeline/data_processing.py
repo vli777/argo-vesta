@@ -23,7 +23,9 @@ from correlation.kmeans_clustering import (
     filter_correlated_groups_kmeans,
     get_cluster_labels_kmeans,
 )
-from changepoint.apply_bocpd import detect_regime_change
+from changepoint.apply_bocpd import (
+    detect_regime_change,    
+)
 from utils.portfolio_utils import normalize_weights, stacked_output
 from utils.data_utils import download_multi_ticker_data, process_input_files
 from utils.logger import logger
@@ -173,15 +175,21 @@ def preprocess_data(
     # Adjust asset symbol list with Bayesian changepoint detection if enabled.
     if config.use_regime_detection:
         logger.info("Detecting current market regime...")
+
+        rolling_mean_ret_7d = (
+            filtered_returns_df.rolling(window=7).mean().dropna().mean(axis=1)
+        )        
         current_regime = detect_regime_change(
-            returns_df=filtered_returns_df, plot=config.plot_changepoint
+            feature_series=rolling_mean_ret_7d, plot=config.plot_changepoint
         )
+        
         logger.info(f"Current regime classification: {current_regime}")
+        
         if current_regime == "Bearish":
             # If the market is bearish, add 'UUP' and 'USDU' to the valid symbols list.
             valid_symbols += ["UUP", "USDU"]
-            # Then adjust portfolio vol limit 
-            config.portfolio_max_vol = 0.12            
+            # Then adjust portfolio vol limit
+            config.portfolio_max_vol = 0.12
 
     # Drop rows with all NaNs.
     return filtered_returns_df, asset_cluster_map

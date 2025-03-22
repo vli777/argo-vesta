@@ -29,9 +29,14 @@ def detect_regime_change(
     """
     # Compute the run-length probability matrix using BOCPD.
     R = bocpd(
-        feature_series, hazard_rate=1 / 15, mu0=0.001, alpha0=3.0, beta0=0.0005, kappa0=0.05
+        feature_series,
+        hazard_rate=1 / 15,
+        mu0=0.001,
+        alpha0=3.0,
+        beta0=0.0005,
+        kappa0=0.05,
     )
-    
+
     T = len(feature_series)
 
     # If thresholds are not provided, calculate them from the feature's statistics.
@@ -69,7 +74,9 @@ def detect_regime_change(
         dates = feature_series.index
         fig = plot_bocpd_result(
             R,
-            title="Bayesian Online Change Point Detection",
+            feature_series=feature_series,
+            series_title="Rolling 7-Day Mean Return",
+            title="Bayesian Online Changepoint Detection Heatmap",
             dates=dates,
             regime_boundaries=regime_boundaries,
             regime_labels=regime_labels,
