@@ -2,7 +2,9 @@ import numpy as np
 import pandas as pd
 
 
-def compute_regime_labels(feature_series: pd.Series, R, threshold_multiplier: float = 0.5) -> list:
+def compute_regime_labels(
+    feature_series: pd.Series, R, threshold_multiplier: float = 0.5
+) -> list:
     """
     Computes regime labels per observation given a feature series and BOCPD matrix.
     Returns a list of labels ("Bullish", "Bearish", "Neutral") for each observation.

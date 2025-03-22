@@ -1,3 +1,4 @@
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -39,6 +40,7 @@ def plot_bocpd_result(
     Returns:
       fig: A Plotly Figure object.
     """
+
     # Determine the x-axis values.
     if dates is not None:
         x_vals = list(dates)
@@ -47,7 +49,7 @@ def plot_bocpd_result(
     else:
         x_vals = list(range(R.shape[0]))
 
-    # For the heatmap, if dates are provided, we use x_vals[1:]
+    # For the heatmap, if dates are provided, we use x_vals[1:].
     heatmap_x = x_vals[1:] if dates is not None else x_vals
 
     # Prepare the heatmap data: drop only the first row (the prior), keep all columns.
@@ -55,7 +57,7 @@ def plot_bocpd_result(
     if run_length_range is None:
         run_length_range = list(range(R.shape[1]))
 
-    # Create a subplot figure with 2 rows, each 50% of the vertical space.
+    # Create a subplot figure with 2 rows.
     fig = make_subplots(
         rows=2,
         cols=1,
@@ -82,7 +84,6 @@ def plot_bocpd_result(
             yaxis=dict(showline=False, zeroline=False, showgrid=False),
         )
         fig.update_yaxes(title_text=series_label, row=1, col=1)
-        # Enable x-axis tick labels in the top subplot.
         fig.update_xaxes(showticklabels=True, row=1, col=1)
 
     # Bottom subplot: Heatmap.
@@ -94,7 +95,6 @@ def plot_bocpd_result(
         zmin=0,
         zmax=1,
     )
-
     fig.add_trace(heatmap, row=2, col=1)
     fig.update_xaxes(title_text="Run Length", row=2, col=1)
     fig.update_yaxes(title_text="Time", row=2, col=1)
@@ -102,6 +102,22 @@ def plot_bocpd_result(
     # Remove vertical grid lines.
     fig.update_xaxes(showgrid=False, row=1, col=1)
     fig.update_xaxes(showgrid=False, row=2, col=1)
+
+    # --- New: Rescale the y-axis (Time) based on the actual non-empty run lengths ---
+    # Define a threshold to determine if a run length has non-negligible probability.
+    threshold = 1e-3  # adjust as needed
+    # For each run length (i.e., for each column in R_plot), get the maximum probability over time.
+    max_probs = np.max(R_plot, axis=0)
+    # Identify indices where the max probability exceeds the threshold.
+    non_empty_indices = np.where(max_probs > threshold)[0]
+    if non_empty_indices.size > 0:
+        # Define a margin (number of run lengths) to add on both ends.
+        margin = 5  # adjust margin as needed
+        min_idx = max(non_empty_indices[0] - margin, 0)
+        max_idx = min(non_empty_indices[-1] + margin, len(run_length_range) - 1)
+        y_range = [run_length_range[min_idx], run_length_range[max_idx]]
+        fig.update_yaxes(range=y_range, row=2, col=1)
+    # -----------------------------------------------------------------------------
 
     # Set overall layout.
     fig.update_layout(
@@ -119,12 +135,11 @@ def plot_bocpd_result(
         "Bearish": hex_to_rgba(bearish_color),
     }
 
-    # Overlay regime segmentation as vertical rectangles on the top subplot only.
+    # Overlay regime segmentation as vertical rectangles on the top subplot.
     if regime_boundaries is not None and regime_labels is not None:
         for i in range(len(regime_boundaries) - 1):
             start_idx = regime_boundaries[i]
             end_idx = regime_boundaries[i + 1]
-            # Ensure indices are within x_vals.
             if start_idx < len(x_vals) and (end_idx - 1) < len(x_vals):
                 x0 = x_vals[start_idx]
                 x1 = x_vals[end_idx - 1]
@@ -140,6 +155,5 @@ def plot_bocpd_result(
                     line_width=0,
                     layer="below",
                 )
-            # Skip overlay for Neutral regimes.
 
     return fig
