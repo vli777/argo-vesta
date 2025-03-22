@@ -1,17 +1,19 @@
 import numpy as np
+import pandas as pd
 from scipy.stats import t
 from sklearn.linear_model import BayesianRidge
 
 
 def bocpd(
-    data,
-    hazard_rate0=1 / 15,
-    mu0=0.0,
-    kappa0=1.0,
-    alpha0=1.0,
-    beta0=1.0,
-    epsilon=1e-8,
-    truncation_threshold=1e-4,
+    data: np.ndarray,
+    hazard_rate0: float = 1 / 60,
+    mu0: float = 0.0,
+    kappa0: float = 1.0,
+    alpha0: float = 1.0,
+    beta0: float = 1.0,
+    epsilon: float = 1e-8,
+    truncation_threshold: float = 1e-4,
+    rolling_window: int = 10,
 ):
     """
     Advanced Bayesian Online Change Point Detection using:
@@ -22,8 +24,10 @@ def bocpd(
     Parameters:
         data: 1D array-like of observations
         mu0, kappa0, alpha0, beta0: Hyperparameters for Normal-Inverse-Gamma prior
+        hazard_rate0: Initial hazard rate for adaptation
         epsilon: Small value for numerical stability
         truncation_threshold: Threshold for dynamic truncation of run-length probabilities
+        rolling_window: Rolling window size
 
     Returns:
         R: Run-length probability matrix
@@ -39,6 +43,7 @@ def bocpd(
 
     hazard_model = BayesianRidge()
     run_lengths = np.array([0])
+    hazard_rate = 1 / 15  # initial default hazard rate
 
     for t_idx in range(1, T + 1):
         x = data.iloc[t_idx - 1]
@@ -50,18 +55,20 @@ def bocpd(
         )
         pred_probs = t.pdf(x, df=df_vec, loc=mu_vec, scale=scale_vec) + epsilon
 
-        # Adaptive hazard rate estimation
-        if len(run_lengths) > 1:
-            hazard_features = run_lengths.reshape(-1, 1)
-            hazard_target = np.log(pred_probs)
+        # Improved adaptive hazard rate estimation with smoothing
+        if t_idx > rolling_window and len(run_lengths) > rolling_window:
+            hazard_features = run_lengths[-rolling_window:].reshape(-1, 1)
+            hazard_target = np.log(pred_probs[-rolling_window:])
             hazard_model.fit(hazard_features, hazard_target)
-            hazard_rate = np.clip(
-                np.exp(hazard_model.predict(hazard_features[-1].reshape(1, -1))[0]),
-                epsilon,
-                0.5,
+            estimated_hazard = np.exp(hazard_model.predict([[run_lengths[-1]]])[0])
+            hazard_rate = 0.5 * hazard_rate + 0.5 * np.clip(
+                estimated_hazard, epsilon, 1
             )
         else:
-            hazard_rate = hazard_rate0  # default initial value
+            hazard_rate = hazard_rate0
+
+        if t_idx % 20 == 0:
+            print(f"t = {t_idx}, hazard_rate = {hazard_rate:.5f}")
 
         prev_R = R[t_idx - 1, : len(run_lengths)]
 

@@ -4,6 +4,7 @@ import numpy as np
 
 from changepoint.bocpd import bocpd
 from changepoint.plot_bocpd import plot_bocpd_result
+from changepoint.bocpd_optimize import get_bocpd_params
 
 
 def detect_regime_change(
@@ -11,113 +12,103 @@ def detect_regime_change(
     plot: bool = False,
     bullish_threshold: float = None,
     bearish_threshold: float = None,
+    bocpd_params: dict = None,
 ) -> str:
     """
-    Runs BOCPD on the given feature series (e.g. momentum, volatility, or rolling returns)
-    and classifies the detected segments as bullish, neutral, or bearish.
-    If `plot` is True, the BOCPD run-length matrix is plotted with the regime segments
-    overlaid. Only the current regime (of the last segment) is returned.
-
-    Parameters:
-      feature_series: pandas Series of the feature (with a datetime index).
-      plot: whether to plot the BOCPD results with regime boundaries and labels.
-      bullish_threshold: (optional) Mean value above which a segment is bullish.
-      bearish_threshold: (optional) Mean value below which a segment is bearish.
-
-    Returns:
-      A string: "Bullish", "Neutral", or "Bearish" for the current regime.
+    Runs BOCPD on the given feature series using provided parameters and returns the current regime.
+    Optionally plots the BOCPD run-length heatmap with regime overlays.
     """
-    # Compute the run-length probability matrix using BOCPD.
-    R = bocpd(
-        feature_series,
-        hazard_rate=1 / 15,
-        mu0=0.001,
-        kappa0=0.05,
-        alpha0=3.0,
-        beta0=0.0005,
-        epsilon=1e-8,
-        truncation_threshold=1e-4,
-    )
+    # Use default parameters if none provided.
+    if bocpd_params is None:
+        bocpd_params = {
+            "hazard_rate0": 1 / 60,
+            "mu0": 0.001,
+            "kappa0": 0.05,
+            "alpha0": 3.0,
+            "beta0": 0.0005,
+            "epsilon": 1e-8,
+            "truncation_threshold": 1e-4,
+            "rolling_window": 10,
+        }
+    else:
+        if "agg_window" in bocpd_params:
+            del bocpd_params["agg_window"]
+        if "hazard_inv" in bocpd_params:
+            bocpd_params["hazard_rate0"] = 1 / bocpd_params["hazard_inv"]
+            del bocpd_params["hazard_inv"]
 
+    R_matrix = bocpd(data=feature_series, **bocpd_params)
     T = len(feature_series)
-
-    # If thresholds are not provided, calculate them from the feature's statistics.
+    # Set thresholds if not provided.
     if bullish_threshold is None or bearish_threshold is None:
         mean_val = feature_series.mean()
         stdev = feature_series.std()
         bullish_threshold = mean_val + 0.5 * stdev
         bearish_threshold = mean_val - 0.5 * stdev
 
-    # Extract most likely run-length for each observation (ignoring the initial prior row).
-    most_likely_run = np.argmax(R[1:], axis=1)
-    # Identify change points when the run-length resets (i.e. a drop in most likely run-length).
+    most_likely_run = np.argmax(R_matrix[1:], axis=1)
     change_points = list(np.where(np.diff(most_likely_run) < 0)[0] + 1)
-    # Define regime boundaries (segment start and end indices).
     regime_boundaries = [0] + change_points + [T]
 
-    regime_labels = []
+    per_segment_labels = []
     for i in range(len(regime_boundaries) - 1):
         start = regime_boundaries[i]
         end = regime_boundaries[i + 1]
-        segment_mean = feature_series.iloc[start:end].mean()
-        if segment_mean >= bullish_threshold:
-            regime = "Bullish"
-        elif segment_mean <= bearish_threshold:
-            regime = "Bearish"
+        seg_mean = feature_series.iloc[start:end].mean()
+        if seg_mean >= bullish_threshold:
+            seg_label = "Bullish"
+        elif seg_mean <= bearish_threshold:
+            seg_label = "Bearish"
         else:
-            regime = "Neutral"
-        regime_labels.append(regime)
+            seg_label = "Neutral"
+        per_segment_labels.append(seg_label)
 
-    # The current regime is the regime for the latest segment.
-    current_regime = regime_labels[-1] if regime_labels else "Neutral"
+    current_regime = per_segment_labels[-1] if per_segment_labels else "Neutral"
 
-    # If plotting is enabled, display the BOCPD run-length matrix with overlaid regime segments.
     if plot:
         dates = feature_series.index
         fig = plot_bocpd_result(
-            R,
+            R_matrix,
             feature_series=feature_series,
             series_title="Aggregate Mean Return",
             series_label="Return",
             title="Bayesian Online Changepoint Detection Heatmap",
             dates=dates,
             regime_boundaries=regime_boundaries,
-            regime_labels=regime_labels,
+            regime_labels=per_segment_labels,
         )
         fig.show()
 
     return current_regime
 
 
-def test_regime_detection_on_features(
-    features: dict,
+def apply_bocpd(
+    returns_df: pd.DataFrame,
     plot: bool = False,
     bullish_threshold: float = None,
     bearish_threshold: float = None,
-) -> dict:
+    cache_dir: str = "optuna_cache",
+    reoptimize: bool = False,
+) -> str:
     """
-    Tests regime detection on multiple feature series. Each key in the dictionary
-    is a feature name (e.g., "Momentum", "Volatility", "Rolling Returns") and the value
-    is a pandas Series containing that feature.
-
-    Parameters:
-      features: dict mapping feature names to pandas Series.
-      plot: whether to plot each feature's BOCPD output.
-      bullish_threshold: optional threshold for bullish classification.
-      bearish_threshold: optional threshold for bearish classification.
+    Aggregates a DataFrame of log returns internally and applies BOCPD regime detection
+    using optimized parameters from cache (or via an Optuna study if not available).
 
     Returns:
-      regimes: dict mapping feature names to the detected current regime.
+      The current regime ("Bullish", "Neutral", or "Bearish").
     """
-    regimes = {}
-    for feature_name, series in features.items():
-        print(f"Processing feature: {feature_name}")
-        regime = detect_regime_change(
-            series,
-            plot=plot,
-            bullish_threshold=bullish_threshold,
-            bearish_threshold=bearish_threshold,
-        )
-        regimes[feature_name] = regime
-        print(f"Detected regime for {feature_name}: {regime}")
-    return regimes
+    # Load or optimize BOCPD parameters.
+    params = get_bocpd_params(returns_df, cache_dir=cache_dir, reoptimize=reoptimize)
+    # Use the optimized aggregation window (agg_window) for the cross-asset aggregation.
+    aggregated_series = (
+        returns_df.rolling(window=params["agg_window"]).mean().dropna().mean(axis=1)
+    )
+
+    current_regime = detect_regime_change(
+        feature_series=aggregated_series,
+        plot=plot,
+        bullish_threshold=bullish_threshold,
+        bearish_threshold=bearish_threshold,
+        bocpd_params=params,
+    )
+    return current_regime
