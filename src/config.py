@@ -42,8 +42,7 @@ class Config:
     use_regime_detection: bool
     clustering_type: Optional[str]
     top_n_performers: Optional[int]
-    use_reversion: bool
-    reversion_type: Optional[str]
+    use_reversion: bool    
     optimization_objective: Optional[str]
     use_global_optimization: bool
     global_optimization_type: Optional[str]
@@ -91,8 +90,7 @@ class Config:
             "use_regime_detection": False,
             "clustering_type": "spectral",
             "top_n_performers": None,
-            "use_reversion": False,
-            "reversion_type": None,
+            "use_reversion": False,            
             "optimization_objective": "sharpe",
             "use_global_optimization": False,
             "global_optimization_type": None,
@@ -127,10 +125,6 @@ class Config:
         instance.input_files_dir = final_config.get("input_files_dir", "watchlists")
         os.makedirs(instance.data_dir, exist_ok=True)
         os.makedirs(instance.input_files_dir, exist_ok=True)
-
-        # Set default reversion_type if used.
-        if instance.use_reversion and instance.reversion_type is None:
-            instance.reversion_type = "z"
 
         # Set default global_optimization_type if used.
         if (

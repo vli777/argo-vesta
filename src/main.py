@@ -101,7 +101,6 @@ def pipeline_runner(
     # Plot reversion signals if configured
     if (
         config.use_reversion
-        and config.reversion_type == "z"
         and config.plot_reversion
         and not reversion_plotted
     ):
