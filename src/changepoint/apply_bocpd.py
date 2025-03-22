@@ -42,9 +42,9 @@ def detect_regime_change(
     # If thresholds are not provided, calculate them from the feature's statistics.
     if bullish_threshold is None or bearish_threshold is None:
         mean_val = feature_series.mean()
-        std_val = feature_series.std()
-        bullish_threshold = mean_val + std_val
-        bearish_threshold = mean_val - std_val
+        stdev = feature_series.std()
+        bullish_threshold = mean_val + 0.5 * stdev
+        bearish_threshold = mean_val - 0.5 * stdev
 
     # Extract most likely run-length for each observation (ignoring the initial prior row).
     most_likely_run = np.argmax(R[1:], axis=1)
@@ -75,7 +75,8 @@ def detect_regime_change(
         fig = plot_bocpd_result(
             R,
             feature_series=feature_series,
-            series_title="Rolling 7-Day Mean Return",
+            series_title="Aggregate Mean Return",
+            series_label="Return",
             title="Bayesian Online Changepoint Detection Heatmap",
             dates=dates,
             regime_boundaries=regime_boundaries,

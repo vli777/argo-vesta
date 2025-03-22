@@ -9,6 +9,7 @@ def plot_bocpd_result(
     R,
     feature_series=None,
     series_title = "Feature Series",
+    series_label = "Feature Value",
     title="BOCPD Run-Length Probabilities and Feature Series",
     dates=None,
     run_length_range=None,
@@ -32,6 +33,7 @@ def plot_bocpd_result(
          Row 0 is the prior; rows 1...T correspond to each observation.
       feature_series: Optional pandas Series for the input feature (e.g., rolling mean returns).
       series_title: Title for the series subplot figure.
+      series_label: Y-axis label for the series values.
       title: Title for the figure.
       dates: Optional sequence (e.g., pd.Index) to use for the x-axis.
       run_length_range: Optional list/array for the y-axis (run lengths). Defaults to range(R.shape[1]).
@@ -70,7 +72,7 @@ def plot_bocpd_result(
             go.Scatter(x=x_vals, y=feature_series.values, mode='lines', name='Feature Series'),
             row=1, col=1
         )
-        fig.update_yaxes(title_text="Feature Value", row=1, col=1)
+        fig.update_yaxes(title_text=series_label, row=1, col=1)
     
     # Bottom subplot: add the heatmap.
     heatmap = go.Heatmap(
@@ -116,8 +118,6 @@ def plot_bocpd_result(
                     fillcolor=regime_colors[label],
                     opacity=0.7,
                     line_width=0,
-                    annotation_text=label,
-                    annotation_position="top left",
                     layer="below"
                 )
             # For neutral regimes, skip adding any vertical rectangle.
