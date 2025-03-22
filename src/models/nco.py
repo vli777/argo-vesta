@@ -251,7 +251,10 @@ def nested_clustered_optimization(
             weights = np.repeat(weights, len(cluster_assets))
         intra_weights.loc[cluster_assets, cluster] = weights
 
-        logger.info(f"Intra-cluster weights:\n{intra_weights}")
+        # logger.info(f"Intra-cluster weights:\n{intra_weights}")
+
+        if np.all(np.isclose(intra_weights, 0.0)):
+            logger.warning("intra-cluster weights are all zero")
 
     # --- Inter-cluster optimization ---
     valid_clusters = intra_weights.columns[intra_weights.sum(axis=0) > 1e-6]
@@ -301,7 +304,9 @@ def nested_clustered_optimization(
         index=valid_clusters,
     )
 
-    logger.info(f"Inter-cluster optimized weights:\n{inter_weights}")
+    # logger.info(f"Inter-cluster optimized weights:\n{inter_weights}")
+    if np.all(np.isclose(inter_weights, 0.0)):
+        logger.warning("inter-cluster weights are all zero")
 
     # --- Combine intra- and inter-cluster weights to get final portfolio weights ---
     final_weights = intra_weights.mul(inter_weights, axis=1).sum(axis=1)
@@ -315,7 +320,7 @@ def nested_clustered_optimization(
     if not isinstance(final_weights, pd.Series):
         final_weights = pd.Series(final_weights, index=intra_weights.index)
 
-    logger.info(f"Combined cluster weights:\n{final_weights}")
+    # logger.info(f"Combined cluster weights:\n{final_weights}")
 
     # --- Build Overall Search History for plotting ---
     # Instead of converting overall_history (which is inhomogeneous) to an array,
@@ -346,8 +351,8 @@ def nested_clustered_optimization(
                     optimization_method_str = "via Dual Annealing"
                 elif use_diffusion:
                     optimization_method_str = "via Stochastic Diffusion"
-                print("search history", overall_search_history)
-                print("\n final weights", final_weights.values)
+                # print("search history", overall_search_history)
+                # print("\n final weights", final_weights.values)
                 plot_global_optimization(
                     search_history=overall_search_history,
                     final_solution=final_weights.values,

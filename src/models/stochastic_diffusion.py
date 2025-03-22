@@ -45,7 +45,14 @@ def multi_seed_diffusion(
     cb = callback if callback is not None else (lambda x, convergence: False)
     results = []
 
-    # Create a custom initial population
+    # Helper function to check if two optimization results are effectively the same.
+    def is_same_result(res1, res2, tol=1e-6):
+        return (
+            np.allclose(res1.x, res2.x, rtol=tol, atol=tol)
+            and abs(res1.fun - res2.fun) < tol
+        )
+
+    # Create a custom initial population if an initial candidate is provided.
     if initial_candidate is not None:
         ndim = len(initial_candidate)
         init_pop = np.empty((popsize, ndim))
@@ -54,7 +61,6 @@ def multi_seed_diffusion(
         for i in range(1, popsize):
             candidate = initial_candidate.copy()
             for j, (low, high) in enumerate(bounds):
-                # Compute perturbation scale relative to bound range.
                 range_val = high - low
                 perturbation = np.random.uniform(
                     -perturb_scale * range_val, perturb_scale * range_val
@@ -69,6 +75,8 @@ def multi_seed_diffusion(
     global_rng = np.random.default_rng(42)
     seeds = [global_rng.integers(0, 1e6) for _ in range(num_runs)]
 
+    early_stop = False
+    start_time = time.monotonic()
     with ProcessPoolExecutor() as executor:
         futures = {
             executor.submit(
@@ -88,7 +96,6 @@ def multi_seed_diffusion(
             for seed in seeds
         }
 
-        start_time = time.monotonic()
         try:
             for future in tqdm(
                 as_completed(futures, timeout=time_limit),
@@ -98,6 +105,14 @@ def multi_seed_diffusion(
                 try:
                     result = future.result()
                     results.append(result)
+                    # Check for duplicate results
+                    for prev in results[:-1]:
+                        if is_same_result(prev, result):
+                            logger.info("Early stopping: identical result found.")
+                            early_stop = True
+                            break
+                    if early_stop:
+                        break
                 except Exception as e:
                     logger.warning("A future failed with exception: " + str(e))
                 if time.monotonic() - start_time > time_limit:
@@ -105,6 +120,12 @@ def multi_seed_diffusion(
                     break
         except TimeoutError:
             logger.info("Time limit reached while waiting for futures.")
+
+        # Cancel any remaining futures if early stopping was triggered.
+        if early_stop:
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
 
     if not results:
         logger.warning(

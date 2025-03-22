@@ -108,7 +108,7 @@ def filter_correlated_groups_spectral(
     plot: bool = False,
     cache_dir: str = "optuna_cache",
     reoptimize: bool = False,
-    top_n: Optional[int] = None
+    top_n: Optional[int] = None,
 ) -> List[str]:
     """
     Uses spectral clustering on the asset returns to create fine‑grained, tight clusters.

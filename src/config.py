@@ -33,14 +33,16 @@ class Config:
     plot_contribution: bool
     plot_anomalies: bool
     plot_clustering: bool
+    plot_changepoint: bool
+    plot_marginal_diversification: bool
     plot_reversion: bool
     plot_optimization: bool
     use_anomaly_filter: bool
     use_decorrelation: bool
+    use_regime_detection: bool
     clustering_type: Optional[str]
     top_n_performers: Optional[int]
     use_reversion: bool
-    reversion_type: Optional[str]
     optimization_objective: Optional[str]
     use_global_optimization: bool
     global_optimization_type: Optional[str]
@@ -81,12 +83,14 @@ class Config:
             "plot_clustering": False,
             "plot_reversion": False,
             "plot_optimization": False,
+            "plot_changepoint": False,
+            "plot_marginal_diversification": False,
             "use_anomaly_filter": False,
             "use_decorrelation": False,
+            "use_regime_detection": False,
             "clustering_type": "spectral",
             "top_n_performers": None,
             "use_reversion": False,
-            "reversion_type": None,
             "optimization_objective": "sharpe",
             "use_global_optimization": False,
             "global_optimization_type": None,
@@ -121,10 +125,6 @@ class Config:
         instance.input_files_dir = final_config.get("input_files_dir", "watchlists")
         os.makedirs(instance.data_dir, exist_ok=True)
         os.makedirs(instance.input_files_dir, exist_ok=True)
-
-        # Set default reversion_type if used.
-        if instance.use_reversion and instance.reversion_type is None:
-            instance.reversion_type = "z"
 
         # Set default global_optimization_type if used.
         if (

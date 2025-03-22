@@ -50,7 +50,8 @@ def multi_seed_dual_annealing(
     Performs global optimization using dual annealing with multiple random seeds.
     If an initial candidate is provided, the first run uses the candidate unmodified,
     and subsequent runs use randomly perturbed versions. This ensures the search covers
-    the area around the candidate, including the candidate itself.
+    the area around the candidate, including the candidate itself. The function will
+    break early if two runs converge to the same result.
 
     Parameters:
         penalized_obj (callable): The objective function to minimize.
@@ -68,9 +69,15 @@ def multi_seed_dual_annealing(
     Returns:
         scipy.optimize.OptimizeResult: The best optimization result found.
     """
-    # Use provided callback or default one
     cb = callback if callback is not None else (lambda x, f, context: False)
     results = []
+
+    # Helper function to determine if two results are effectively the same.
+    def is_same_result(res1, res2, tol=1e-6):
+        return (
+            np.allclose(res1.x, res2.x, rtol=tol, atol=tol)
+            and abs(res1.fun - res2.fun) < tol
+        )
 
     # Create reproducible seeds
     global_rng = np.random.default_rng(42)
@@ -91,7 +98,6 @@ def multi_seed_dual_annealing(
                 )
             else:
                 x0 = None  # dual_annealing selects its own starting point.
-
             future = executor.submit(
                 dual_annealing,
                 penalized_obj,
@@ -106,11 +112,25 @@ def multi_seed_dual_annealing(
             )
             futures[future] = seed
 
+        early_stop = False
         for future in tqdm(
             as_completed(futures), total=len(futures), desc="Dual Annealing"
         ):
             result = future.result()
             results.append(result)
+            # Check if this result matches any previous result
+            for prev in results[:-1]:
+                if is_same_result(prev, result):
+                    logger.info("Early stopping: identical result found.")
+                    early_stop = True
+                    break
+            if early_stop:
+                break
+
+        if early_stop:
+            for fut in futures:
+                if not fut.done():
+                    fut.cancel()
 
     best_result = min(results, key=lambda r: r.fun)
 

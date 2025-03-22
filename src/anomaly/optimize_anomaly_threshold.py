@@ -69,7 +69,7 @@ def optimize_threshold_for_ticker(
         if np.isnan(median_volatility) or median_volatility == 0:
             median_volatility = 1.0
 
-        # Rolling volatility computation (30-day window, min 5 observations).        
+        # Rolling volatility computation (30-day window, min 5 observations).
         # rolling_std_series = returns_series.rolling(window=30, min_periods=5).std()
         # rolling_volatility = np.nanmean(rolling_std_series)
         # median_volatility = np.nanmedian(rolling_std_series)
@@ -95,7 +95,9 @@ def optimize_threshold_for_ticker(
         # Use EWMA for rolling mean and std for the z-score calculation.
         ewma_mean = returns_series.ewm(span=30, min_periods=5).mean()
         ewma_std = returns_series.ewm(span=30, min_periods=5).std()
-        z_score_series = ((returns_series - ewma_mean) / (ewma_std + 1e-8)).abs().fillna(0)
+        z_score_series = (
+            ((returns_series - ewma_mean) / (ewma_std + 1e-8)).abs().fillna(0)
+        )
         # rolling_mean = returns_series.rolling(window=30, min_periods=5).mean()
         # rolling_std = returns_series.rolling(window=30, min_periods=5).std()
         # z_score_series = (

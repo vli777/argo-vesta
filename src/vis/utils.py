@@ -141,3 +141,14 @@ def get_text_color(bgcolor: str) -> str:
     r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
     brightness = (r * 299 + g * 587 + b * 114) / 1000
     return "#f4f4f4" if brightness < 128 else "#1e1e1e"
+
+
+def hex_to_rgba(hex_color: str, opacity: float = 1.0):
+    """
+    Convert a hex color string to an rgba string with the given opacity.
+    """
+    hex_color = hex_color.lstrip("#")
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+    return f"rgba({r},{g},{b},{opacity})"
