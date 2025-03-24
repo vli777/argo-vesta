@@ -309,7 +309,7 @@ def optimize_weights_objective(
                     cov=cov,
                     returns=returns,
                     target=target,
-                    target_sum=target_sum,
+                    gross_target=max_gross_exposure,
                     max_weight=max_weight,
                     allow_short=allow_short,
                     vol_limit=vol_limit if apply_constraints else None,

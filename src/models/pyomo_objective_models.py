@@ -161,9 +161,9 @@ def build_omega_model(
     cov: pd.DataFrame,
     returns: pd.DataFrame,
     target: float,
-    target_sum: float,
     max_weight: float,
     allow_short: bool,
+    gross_target: float = 1.3,
     vol_limit: float = None,  # Optional volatility constraint
     cvar_limit: float = None,  # Optional CVaR constraint (upper bound on CVaR)
     alpha: float = 0.05,  # Tail probability for CVaR (default 5%)
@@ -198,7 +198,7 @@ def build_omega_model(
         cov (pd.DataFrame): Covariance matrix.
         returns (pd.DataFrame): Historical returns (T x n).
         target (float): Target return (for the Omega formulation).
-        target_sum (float): Sum of portfolio weights (usually 1).
+        gross_target (float): Sum of gross exposure.
         max_weight (float): Maximum weight per asset.
         allow_short (bool): Allow short selling.
         vol_limit (float): Optional volatility constraint.
@@ -252,7 +252,7 @@ def build_omega_model(
 
         model.abs_constraint_neg = pyo.Constraint(model.assets, rule=abs_constraint_neg)
         # Enforce gross exposure: sum(|y[i]|) <= gross_target * z.
-        gross_target = 1.3  # adjust as desired
+
         model.gross_exposure = pyo.Constraint(
             expr=sum(model.gross_y[i] for i in model.assets) <= gross_target * model.z
         )
