@@ -24,14 +24,21 @@ def generate_boxplot_data(returns_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]
         q1 = np.percentile(data, 25)
         median = np.percentile(data, 50)
         q3 = np.percentile(data, 75)
-        lower_whisker = np.min(data)
-        upper_whisker = np.max(data)
-
         # Compute outliers using IQR method
         iqr = q3 - q1
+
         lower_fence = q1 - 1.5 * iqr
         upper_fence = q3 + 1.5 * iqr
-        outliers = [x for x in data if x < lower_fence or x > upper_fence]
+
+        # Whiskers are the most extreme non-outlier values
+        lower_whisker = (
+            np.min(data[data >= lower_fence]) if np.any(data >= lower_fence) else q1
+        )
+        upper_whisker = (
+            np.max(data[data <= upper_fence]) if np.any(data <= upper_fence) else q3
+        )
+
+        outliers = data[(data < lower_fence) | (data > upper_fence)].tolist()
 
         boxplot_stats[col] = {
             "q1": q1,
