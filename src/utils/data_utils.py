@@ -158,7 +158,7 @@ def get_stock_data(
 
     # If both fail, return an empty DataFrame
     logger.error(
-        f"Failed to download {symbol} data from both Yahoo Finance and Charles Schwab."
+        f"Failed to download {symbol} data or data is unavailable for the selected period."
     )
     return pd.DataFrame()
 

@@ -61,7 +61,7 @@ def process_symbols(symbols, start_date, end_date, data_path, download) -> pd.Da
     # Forward-fill then backward-fill missing values.
     combined_data.ffill(inplace=True)
     combined_data.bfill(inplace=True)
-    
+
     last_row = combined_data.iloc[-1]
     # For each ticker (first level of the MultiIndex), check if all values at the last row are not NaN.
     ticker_validity = last_row.notna().groupby(level=0).all()
