@@ -5,49 +5,46 @@ import pandas as pd
 
 def generate_boxplot_data(returns_df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
     """
-    Compute boxplot statistics (Q1, median, Q3, whiskers, and outliers)
-    for each column in a DataFrame.
+    Compute boxplot statistics for each column in a DataFrame,
+    skipping leading 0s that were likely bfilled before a stock started.
 
     Args:
-        returns_df (pd.DataFrame): DataFrame where each column represents a stock's daily returns.
+        returns_df (pd.DataFrame): DataFrame where each column is a stock's daily returns.
 
     Returns:
-        Dict[str, Dict[str, Any]]: Dictionary where each stock symbol maps to its boxplot statistics.
+        Dict[str, Dict[str, Any]]: Boxplot stats per stock symbol.
     """
     boxplot_stats = {}
 
     for col in returns_df.columns:
-        data = returns_df[col].dropna().values  # Drop NaNs for accurate calculations
-        if len(data) == 0:
-            continue  # Skip empty columns
+        col_data = returns_df[col]
 
-        q1 = np.percentile(data, 25)
-        median = np.percentile(data, 50)
-        q3 = np.percentile(data, 75)
-        # Compute outliers using IQR method
+        # Remove leading 0s — only those that come before the first non-zero value
+        first_valid_index = col_data.ne(0).idxmax()  # First non-zero
+        cleaned_data = col_data.loc[first_valid_index:].dropna()
+
+        if cleaned_data.empty:
+            continue
+
+        values = cleaned_data.values
+        q1 = np.percentile(values, 25)
+        median = np.percentile(values, 50)
+        q3 = np.percentile(values, 75)
         iqr = q3 - q1
-
-        lower_fence = q1 - 1.5 * iqr
-        upper_fence = q3 + 1.5 * iqr
-
-        # Whiskers are the most extreme non-outlier values
-        lower_whisker = (
-            np.min(data[data >= lower_fence]) if np.any(data >= lower_fence) else q1
-        )
-        upper_whisker = (
-            np.max(data[data <= upper_fence]) if np.any(data <= upper_fence) else q3
-        )
-
-        outliers = data[(data < lower_fence) | (data > upper_fence)].tolist()
+        lf = q1 - 1.5 * iqr
+        uf = q3 + 1.5 * iqr
+        whisker_low = values[values >= lf].min()
+        whisker_high = values[values <= uf].max()
+        outliers = values[(values < lf) | (values > uf)].tolist()
 
         boxplot_stats[col] = {
             "q1": q1,
             "median": median,
             "q3": q3,
-            "lf": lower_fence,
-            "uf": upper_fence,
-            "min": lower_whisker,
-            "max": upper_whisker,
+            "lf": lf,
+            "uf": uf,
+            "min": whisker_low,
+            "max": whisker_high,
             "outliers": outliers,
         }
 
