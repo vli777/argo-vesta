@@ -61,6 +61,23 @@ def process_symbols(symbols, start_date, end_date, data_path, download) -> pd.Da
     # Forward-fill then backward-fill missing values.
     combined_data.ffill(inplace=True)
     combined_data.bfill(inplace=True)
+    
+    last_row = combined_data.iloc[-1]
+    # For each ticker (first level of the MultiIndex), check if all values at the last row are not NaN.
+    ticker_validity = last_row.notna().groupby(level=0).all()
+
+    # Identify tickers that are missing all data on the latest trading date.
+    tickers_to_remove = ticker_validity[~ticker_validity].index.tolist()
+
+    # Log each removed ticker.
+    for ticker in tickers_to_remove:
+        logger.info(
+            f"Removing ticker {ticker} as its data is not updated to the overall latest trading date: {combined_data.index.max()}."
+        )
+
+    # Drop the columns for the tickers that don't have complete data at the latest trading date.
+    if tickers_to_remove:
+        combined_data.drop(columns=tickers_to_remove, level=0, inplace=True)
 
     # Drop any rows that remain completely null.
     if combined_data.isna().any().any():
