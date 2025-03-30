@@ -2,6 +2,83 @@ import numpy as np
 import pandas as pd
 
 
+def compute_cluster_stateful_signal(
+    cluster_returns: pd.DataFrame,
+    tuned_params: dict,
+    target_decay: float = 0.5,
+    reset_factor: float = 0.5,
+    sensitivity: float = 1.0,
+    baseline: float = 1.0,
+) -> pd.Series:
+    """
+    Compute a single, aggregated stateful signal for an entire cluster of tickers.
+
+    This function aggregates the returns across the cluster (here, by taking the mean)
+    to form a representative time series. It then computes a stateful signal using the
+    tuned parameters via the compute_stateful_signal_with_decay function.
+
+    Args:
+        cluster_returns (pd.DataFrame): Returns for tickers in the cluster.
+        tuned_params (dict): Tuned parameters (e.g., rolling window, z-score thresholds).
+        target_decay (float): Decay parameter for the signal.
+        reset_factor (float): Reset factor for the signal.
+        sensitivity (float): How strongly the raw signal affects the adjustment.
+        baseline (float): Baseline allocation (1 means no change).
+
+    Returns:
+        pd.Series: The computed cluster-level signal.
+    """
+    # Aggregate the cluster returns (you can use mean, median, etc. – here we use mean)
+    aggregated_series = cluster_returns.mean(axis=1)
+    # Compute the signal using the same decay-based logic
+    cluster_signal = compute_stateful_signal_with_decay(
+        aggregated_series,
+        tuned_params,
+        target_decay=target_decay,
+        reset_factor=reset_factor,
+        sensitivity=sensitivity,
+        baseline=baseline,
+    )
+    return cluster_signal
+
+
+def compute_group_cluster_signals(
+    group_returns: pd.DataFrame,
+    tuned_params: dict,
+    target_decay: float = 0.5,
+    reset_factor: float = 0.5,
+    sensitivity: float = 1.0,
+    baseline: float = 1.0,
+) -> dict:
+    """
+    Compute a single cluster-level signal for a group of tickers and assign it to each ticker.
+
+    Returns a dictionary mapping each ticker to the cluster-level signal. This way, even though
+    each ticker's individual series might not be mean-reverting, the group-level signal captures
+    the relative reversion dynamics within the cluster.
+
+    Args:
+        group_returns (pd.DataFrame): Returns for the tickers in the cluster.
+        tuned_params (dict): Tuned parameters for computing the signal.
+        target_decay, reset_factor, sensitivity, baseline: Parameters passed to the signal function.
+
+    Returns:
+        dict: A dictionary mapping each ticker (column) to the computed cluster signal.
+    """
+    # Compute the cluster-level (aggregated) signal
+    cluster_signal = compute_cluster_stateful_signal(
+        group_returns,
+        tuned_params,
+        target_decay=target_decay,
+        reset_factor=reset_factor,
+        sensitivity=sensitivity,
+        baseline=baseline,
+    )
+    # Assign the same cluster signal to each ticker in the cluster
+    signals = {ticker: cluster_signal for ticker in group_returns.columns}
+    return signals
+
+
 def compute_stateful_signal_with_decay(
     series: pd.Series,
     params: dict,
@@ -85,11 +162,11 @@ def compute_stateful_signal_with_decay(
                 state_age[i] = 0
 
         # Compute adaptive decay rate based on realized volatility
-        # rolling_vol = rolling_std.copy()
-        # adaptive_decay_rate = target_decay ** (rolling_vol / rolling_vol.mean())
-        # decay_multiplier = (
-        #     adaptive_decay_rate.iloc[i] ** state_age[i] if state[i] != 0 else 0
-        # )
+        rolling_vol = rolling_std.copy()
+        adaptive_decay_rate = target_decay ** (rolling_vol / rolling_vol.mean())
+        decay_multiplier = (
+            adaptive_decay_rate.iloc[i] ** state_age[i] if state[i] != 0 else 0
+        )
 
         # Compute decay multiplier proportional to the series optimal reversion window.
         if state[i] != 0:
@@ -196,3 +273,51 @@ def compute_group_stateful_signals(
                 series, params, target_decay=target_decay, reset_factor=reset_factor
             )
     return signals
+
+
+def compute_signals_for_group(
+    group_returns: pd.DataFrame,
+    tuned_params: dict,
+    mode: str = "fallback",
+    frequency: str = "daily",
+    target_decay: float = 0.5,
+    reset_factor: float = 0.5,
+) -> pd.DataFrame:
+    """
+    Compute stateful signals for each ticker in a group using the tuned parameters.
+
+    For fallback mode, this function uses the same compute_stateful_signal_with_decay function.
+    If frequency is "weekly", it resamples the returns data accordingly.
+
+    Args:
+        group_returns (pd.DataFrame): Returns for the group (tickers as columns).
+        tuned_params (dict): Tuning parameters (e.g., window, thresholds).
+        mode (str): Either "fallback" or "cointegration". For now, fallback uses compute_stateful_signal_with_decay.
+        frequency (str): "daily" or "weekly". For weekly, the series is resampled.
+        target_decay (float): Decay parameter for the signal.
+        reset_factor (float): Reset factor for the signal.
+
+    Returns:
+        pd.DataFrame: DataFrame of computed signals (tickers as columns).
+    """
+    signals = {}
+
+    # Resample if using weekly frequency.
+    if frequency == "weekly":
+        group_returns = group_returns.resample("W").last()
+
+    for ticker in group_returns.columns:
+        series = group_returns[ticker].dropna()
+        if not series.empty:
+            # For fallback mode we just use the original signal function.
+            signals[ticker] = compute_stateful_signal_with_decay(
+                series,
+                tuned_params,
+                target_decay=target_decay,
+                reset_factor=reset_factor,
+            )
+        else:
+            signals[ticker] = pd.Series(dtype=float)
+
+    signals_df = pd.concat(signals, axis=1).fillna(0)
+    return signals_df
