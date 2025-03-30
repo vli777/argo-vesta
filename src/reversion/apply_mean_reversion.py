@@ -20,9 +20,10 @@ from utils.caching_utils import load_parameters_from_pickle, save_parameters_to_
 
 
 def apply_mean_reversion(
+    price_df: pd.DataFrame,
+    returns_df: pd.DataFrame,
     asset_cluster_map: Dict[str, int],
     baseline_allocation: pd.Series,
-    returns_df: pd.DataFrame,
     config: Config,
     cache_dir: str = "optuna_cache",
 ) -> pd.Series:
@@ -31,9 +32,10 @@ def apply_mean_reversion(
     the adjustment onto the baseline allocation using a continuous adjustment factor.
 
     Args:
+        price_df (pd.DataFrame): Adj close price for each ticker.
+        returns_df (pd.DataFrame): Log returns for each ticker.
         asset_cluster_map (Dict[str, int]): Maps each ticker to a cluster ID.
         baseline_allocation (pd.Series): Baseline allocation for each ticker.
-        returns_df (pd.DataFrame): Log returns for each ticker.
         config (Config): Configuration object with optimization objectives, etc.
         cache_dir (str): Directory where optimization results are cached.
 
@@ -67,10 +69,10 @@ def apply_mean_reversion(
         returns_subset = returns_df[missing_tickers] if missing_tickers else returns_df
 
         # This function updates 'global_cache' in-place with new parameters for missing clusters
-        # and returns only the parameters, not signals
         cluster_mean_reversion(
-            asset_cluster_map=asset_cluster_map,
+            price_df=price_df,
             returns_df=returns_subset,
+            asset_cluster_map=asset_cluster_map,
             objective_weights=objective_weights,
             n_trials=50,
             n_jobs=-1,
