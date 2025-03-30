@@ -2,9 +2,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
-
 import hashlib
 from datetime import datetime
+from types import SimpleNamespace
+from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
 from correlation.correlation_utils import compute_correlation_matrix
 from utils.portfolio_utils import normalize_weights
@@ -40,7 +41,7 @@ def format_asset_cluster_map(
     return formatted_clusters
 
 
-def is_cache_stale(last_updated: str, max_age_days: int = 180) -> bool:
+def is_cache_stale(last_updated: str, max_age_days: int = 30) -> bool:
     """Check if the cache is stale based on the last update timestamp."""
     if not last_updated:  # Handle empty or None last_updated
         return True  # Treat missing timestamp as stale
@@ -281,3 +282,44 @@ def adjust_allocation_with_mean_reversion(
 
     normalized_adjusted = normalize_weights(adjusted)
     return normalized_adjusted
+
+
+def johansen_test(prices_df, det_order=0, k_ar_diff=1):
+    """
+    Runs the Johansen cointegration test and returns a simple namespace with:
+      - cointegration_found (bool): True if any test statistic exceeds its critical value at 5%
+      - eigenvector: The cointegrating vector corresponding to the first (largest) test statistic.
+    """
+    result = coint_johansen(prices_df, det_order, k_ar_diff)
+    # Use the trace statistic and its critical values at the 5% level.
+    cointegration_found = any(result.lr1 > result.cvt[:, 1])
+    eigenvector = result.evec[:, 0] if cointegration_found else None
+    return SimpleNamespace(
+        cointegration_found=cointegration_found, eigenvector=eigenvector
+    )
+
+
+def compute_spread(prices_df: pd.DataFrame, eigenvector: np.ndarray) -> pd.Series:
+    """
+    Compute the cointegrated spread from asset prices using the cointegrating vector.
+
+    The spread is calculated as a weighted sum of the asset prices, where the weights
+    are derived from the cointegrating eigenvector. In cases where the sum of the eigenvector
+    is close to zero, the eigenvector is normalized by its Euclidean norm instead.
+
+    Args:
+        prices_df (pd.DataFrame): DataFrame with dates as index and asset prices as columns.
+        eigenvector (np.ndarray): Cointegrating vector from the Johansen test.
+
+    Returns:
+        pd.Series: Time series representing the computed spread.
+    """
+    # Normalize the eigenvector. If the sum is near zero, use the Euclidean norm.
+    if np.isclose(eigenvector.sum(), 0):
+        weights = eigenvector / np.linalg.norm(eigenvector)
+    else:
+        weights = eigenvector / eigenvector.sum()
+
+    # Compute the spread as the weighted sum of prices.
+    spread = prices_df.dot(weights)
+    return spread
