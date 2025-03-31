@@ -352,7 +352,7 @@ def run_pipeline(
             sorted_time_periods=sorted_time_periods,
             config=config,
             asset_cluster_map=asset_cluster_map,
-            returns_df=returns_df,
+            returns_df=filtered_returns_df,
         )
 
     # Optional plotting (only on local runs)

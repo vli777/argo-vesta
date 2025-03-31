@@ -20,15 +20,14 @@ def cointegration_mean_reversion_objective(
     """
     Objective function for tuning cointegration-based mean reversion parameters.
     The procedure:
-      1. Suggests a rolling window and z-score thresholds.
+      1. Suggest a rolling window and z-score thresholds.
       2. Computes the cointegrated spread from prices.
       3. Calculates robust z-scores on the spread.
       4. Generates signals and computes a composite performance score.
-
     Returns:
         float: Composite score for this trial.
     """
-    # Suggest parameters
+    # Suggest parameters.
     window = trial.suggest_int(
         "window",
         test_window_range.start,
@@ -42,7 +41,7 @@ def cointegration_mean_reversion_objective(
         "z_threshold_positive", 1.0, 3.0, step=0.1
     )
 
-    # Compute cointegrating vector
+    # Compute cointegrating vector.
     coint_result = johansen_test(prices_df)
     if not coint_result.cointegration_found:
         # Penalize if cointegration isn't found.
@@ -51,7 +50,7 @@ def cointegration_mean_reversion_objective(
     spread = compute_spread(prices_df, eigenvector)  # Spread as a Series
     spread_df = pd.DataFrame(spread, columns=["spread"])
 
-    # Compute robust z-scores on the spread
+    # Compute robust z-scores on the spread.
     robust_z = calculate_robust_zscores(spread_df, window)  # Expects a DataFrame
 
     # Generate signals:
@@ -59,25 +58,22 @@ def cointegration_mean_reversion_objective(
     #   - Short signal when spread is significantly high.
     signals = np.where(
         robust_z["spread"].values < -z_threshold_negative,
-        (np.abs(robust_z["spread"].values) - z_threshold_negative)
-        / z_threshold_negative,
+        (np.abs(robust_z["spread"].values) - z_threshold_negative) / z_threshold_negative,
         np.where(
             robust_z["spread"].values > z_threshold_positive,
-            -(
-                (robust_z["spread"].values - z_threshold_positive)
-                / z_threshold_positive
-            ),
+            -((robust_z["spread"].values - z_threshold_positive) / z_threshold_positive),
             0,
         ),
     )
     signals_df = pd.DataFrame(signals, index=robust_z.index, columns=["signal"])
+    # Shift signals to avoid look-ahead bias.
     positions_df = signals_df.shift(1).fillna(0)
 
-    # Compute spread returns (using percentage change)
-    spread_returns = spread_df["spread"].pct_change().dropna()
+    # Compute spread returns difference
+    spread_returns = spread_df["spread"].diff().dropna()
     positions = positions_df["signal"].reindex(spread_returns.index).fillna(0)
 
-    # Evaluate performance using your custom metrics
+    # Evaluate performance using custom metrics.
     metrics = strategy_performance_metrics(
         returns_df=spread_returns.to_frame("spread"),
         positions_df=positions.to_frame("signal"),
@@ -88,7 +84,6 @@ def cointegration_mean_reversion_objective(
 
 def optimize_cointegration_mean_reversion(
     prices_df: pd.DataFrame,
-    returns_df: pd.DataFrame,
     objective_weights: dict,
     test_window_range: range = range(10, 31, 5),
     n_trials: int = 50,
@@ -123,7 +118,6 @@ def optimize_cointegration_mean_reversion(
         lambda trial: cointegration_mean_reversion_objective(
             trial,
             prices_df=prices_df,
-            returns_df=returns_df,
             objective_weights=objective_weights,
             test_window_range=test_window_range,
         ),

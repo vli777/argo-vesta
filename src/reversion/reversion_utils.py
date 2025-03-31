@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import numpy as np
@@ -41,74 +42,57 @@ def format_asset_cluster_map(
     return formatted_clusters
 
 
-def is_cache_stale(last_updated: str, max_age_days: int = 30) -> bool:
+def is_cache_stale(reversion_cache_file: str, max_age_days: int = 30) -> bool:
     """Check if the cache is stale based on the last update timestamp."""
-    if not last_updated:  # Handle empty or None last_updated
-        return True  # Treat missing timestamp as stale
-
-    try:
-        last_update = datetime.fromisoformat(last_updated)
-    except ValueError:
-        return True  # If it's an invalid timestamp, consider it stale
-
-    return (datetime.now() - last_update).days >= max_age_days
+    # Check if the cache file exists and determine if it is stale based on its last modified time.
+    if os.path.exists(reversion_cache_file):
+        cache_modified_time = datetime.fromtimestamp(
+            os.path.getmtime(reversion_cache_file)
+        )
+        cache_age_days = (datetime.now() - cache_modified_time).days
+        return cache_age_days >= max_age_days
+    else:
+        return True
 
 
 def calculate_continuous_composite_signal(signals: dict, ticker_params: dict) -> dict:
-    """
-    Compute a composite mean reversion signal for each ticker.
-
-    For each ticker, the composite signal is computed as:
-         composite[ticker] = weight_daily * latest_daily_signal + weight_weekly * latest_weekly_signal
-
-    Args:
-        signals (dict): Mapping from ticker to its signals, e.g.
-            {
-                "AAPL": {"daily": {date: signal, ...} or pd.Series, "weekly": {date: signal, ...} or pd.Series},
-                "MSFT": {"daily": {...}, "weekly": {...}},
-                ...
-            }
-        ticker_params (dict): Global cache keyed by ticker with parameters.
-
-    Returns:
-        dict: Mapping from ticker to its composite signal.
-    """
     composite = {}
     for ticker, sig_data in signals.items():
         params = ticker_params.get(ticker, {})
-        wd = params.get("weight_daily", 0.7)
-        # Ensure weight_daily is within [0,1]
-        wd = max(0.0, min(wd, 1.0))
-        ww = 1.0 - wd
+        mode = params.get("mode", "fallback")
+        if mode == "cointegration":
+            # For cointegration, assume only daily signal is used.
+            latest_val = 0
+            daily_signal = sig_data.get("daily", None)
+            if daily_signal is not None:
+                if isinstance(daily_signal, pd.Series) and not daily_signal.empty:
+                    latest_val = daily_signal.iloc[-1]
+                elif isinstance(daily_signal, dict) and daily_signal:
+                    latest_val = daily_signal[max(daily_signal.keys())]
+            composite[ticker] = latest_val
+        else:
+            # For fallback, blend daily and weekly signals.
+            wd = params.get("weight_daily", 0.7)
+            wd = max(0.0, min(wd, 1.0))
+            ww = 1.0 - wd
+            daily_val = 0
+            daily_signal = sig_data.get("daily", None)
+            if daily_signal is not None:
+                if isinstance(daily_signal, pd.Series) and not daily_signal.empty:
+                    daily_val = daily_signal.iloc[-1]
+                elif isinstance(daily_signal, dict) and daily_signal:
+                    daily_val = daily_signal[max(daily_signal.keys())]
 
-        # Retrieve the daily signal, which might be a dict or a Pandas Series.
-        daily_signal = sig_data.get("daily", None)
-        daily_val = 0
-        if daily_signal is not None:
-            if isinstance(daily_signal, pd.Series):
-                if not daily_signal.empty:
-                    latest_date = daily_signal.index.max()
-                    daily_val = daily_signal.loc[latest_date]
-            elif isinstance(daily_signal, dict):
-                if daily_signal:  # non-empty dictionary
-                    latest_date = max(daily_signal.keys())
-                    daily_val = daily_signal[latest_date]
+            weekly_val = 0
+            weekly_signal = sig_data.get("weekly", None)
+            if weekly_signal is not None:
+                if isinstance(weekly_signal, pd.Series) and not weekly_signal.empty:
+                    weekly_val = weekly_signal.iloc[-1]
+                elif isinstance(weekly_signal, dict) and weekly_signal:
+                    weekly_val = weekly_signal[max(weekly_signal.keys())]
 
-        # Retrieve the weekly signal.
-        weekly_signal = sig_data.get("weekly", None)
-        weekly_val = 0
-        if weekly_signal is not None:
-            if isinstance(weekly_signal, pd.Series):
-                if not weekly_signal.empty:
-                    latest_date = weekly_signal.index.max()
-                    weekly_val = weekly_signal.loc[latest_date]
-            elif isinstance(weekly_signal, dict):
-                if weekly_signal:
-                    latest_date = max(weekly_signal.keys())
-                    weekly_val = weekly_signal[latest_date]
-
-        composite[ticker] = wd * daily_val + ww * weekly_val
-
+            composite[ticker] = wd * daily_val + ww * weekly_val
+    
     return composite
 
 

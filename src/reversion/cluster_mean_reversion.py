@@ -7,13 +7,11 @@ from reversion.reversion_utils import (
     format_asset_cluster_map,
     johansen_test,
 )
-from reversion.reversion_signals import (
-    compute_signals_for_group,
-)
 from reversion.optimize_period_weights import find_optimal_weights
 from reversion.optimize_cointegration_mean_reversion import (
     optimize_cointegration_mean_reversion,
 )
+from reversion.reversion_signals import compute_individual_stateful_signals_for_group
 from utils import logger
 from utils.caching_utils import save_parameters_to_pickle
 
@@ -37,6 +35,13 @@ def cluster_mean_reversion(
     formatted_clusters = format_asset_cluster_map(asset_cluster_map, global_cache)
 
     for cluster_label, tickers in formatted_clusters.items():
+        # Only keep tickers that exist in both price_df and returns_df.
+        tickers = [
+            ticker
+            for ticker in tickers
+            if ticker in price_df.columns and ticker in returns_df.columns
+        ]
+
         # Skip clusters with a single asset (noise) or handle them with a default strategy.
         if len(tickers) < 2:
             logger.info(
@@ -64,18 +69,17 @@ def cluster_mean_reversion(
 
         # Decide which mode to use based on cointegration test.
         if coint_result and coint_result.cointegration_found:
-            mode = "cointegration"
-            tuned_params = optimize_cointegration_mean_reversion(
+            tuned_params, _ = optimize_cointegration_mean_reversion(
                 prices_df=cluster_prices,
-                returns_df=cluster_returns,
                 objective_weights=objective_weights,
                 test_window_range=range(5, 61, 5),
                 n_trials=n_trials,
                 n_jobs=n_jobs,
             )
+            tuned_params["mode"] = "cointegration"  # Store mode!
+            tuned_params["weight_daily"] = 1.0
+            tuned_params["weight_weekly"] = 0.0
         else:
-            mode = "fallback"
-            # Tune parameters for fallback (e.g., C-score based) reversion.
             best_params_daily, _ = optimize_robust_mean_reversion(
                 returns_df=cluster_returns,
                 objective_weights=objective_weights,
@@ -110,13 +114,21 @@ def cluster_mean_reversion(
                 "weight_weekly": 0.3,
             }
             best_period_weights = find_optimal_weights(
-                daily_signals_df=compute_signals_for_group(
-                    cluster_returns, tuned_params, mode="fallback", frequency="daily"
+                daily_signals_df=compute_individual_stateful_signals_for_group(
+                    cluster_returns,
+                    tuned_params,
+                    frequency="daily",
+                    target_decay=0.5,
+                    reset_factor=0.5,
                 ),
-                weekly_signals_df=compute_signals_for_group(
-                    cluster_returns, tuned_params, mode="fallback", frequency="weekly"
+                weekly_signals_df=compute_individual_stateful_signals_for_group(
+                    cluster_returns,
+                    tuned_params,
+                    frequency="weekly",
+                    target_decay=0.5,
+                    reset_factor=0.5,
                 ),
-                full_returns_df=returns_df,
+                returns_df=returns_df,
                 objective_weights=objective_weights,
                 n_trials=n_trials,
                 n_jobs=n_jobs,
@@ -124,6 +136,11 @@ def cluster_mean_reversion(
             )
             tuned_params["weight_daily"] = best_period_weights.get("weight_daily", 0.7)
             tuned_params["weight_weekly"] = 1.0 - tuned_params["weight_daily"]
+            tuned_params["mode"] = "fallback"  # Store mode here as well.
+
+        for ticker in tickers:
+            global_cache[ticker] = tuned_params.copy()
+            global_cache[ticker]["cluster"] = cluster_label
 
     # Save the updated cache to the checkpoint file.
     save_parameters_to_pickle(global_cache, checkpoint_file)
