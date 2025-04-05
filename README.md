@@ -14,6 +14,9 @@ Modern Portfolio Optimization
 # April 2025
 - [x] Bayesian changepoint detection for regime switching
 - [x] Clustering fine-tuning of existing methods
+- Update: BOCPD and Stat Arb are implemented but set for deprecation due to lack of usability:
+  - BOCPD: lagged moves in many instances and misclassified with false positives in several cases; frequent reallocation + interpretation of shifts was empirically more accurate and a leading indicator
+  - Stat-arb: Many assets are not mean-reverting; a cluster level approach was used but signals decayed quickly and did not outperform the baseline allocation meaningfully, while taking more computation time. Possibly stat-arb dispersion is too quick from crowding or simply doesn't exist in a meaningful way except for long term periods, in which case a forecast model should be able to capture these relationships
 
 # March 2025
 - [x] Multi-asset statistical arbitrage
