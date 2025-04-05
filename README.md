@@ -1,12 +1,15 @@
 # ArgoVesta
 Modern Portfolio Optimization 
 
-# Upcoming
+# Long term
 - [ ] DuckDB migration for faster data loading
-- [ ] Bayesian changepoint detection for regime switching
-- [x] Clustering fine-tuning
-- [ ] Volatility Strategies
-- [ ] Forecasting models
+- [ ] Volatility and Options Strategies, auto hedge, etc
+- [ ] GBDT+ Forecasting models
+
+# April 2025
+- [x] Bayesian changepoint detection for regime switching
+- [x] Clustering fine-tuning of existing methods
+- [ ] Clustering methods feat update: alpha-aware, latent cluster methods
 
 # March 2025
 - [x] Multi-asset statistical arbitrage
