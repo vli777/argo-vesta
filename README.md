@@ -5,11 +5,12 @@ Modern Portfolio Optimization
 - [ ] DuckDB migration for faster data loading
 - [ ] Volatility and Options Strategies, auto hedge, etc
 - [ ] Market Forecasting models
+- [ ] Clustering methods feat update: alpha-aware, latent cluster methods
+- [ ] Anomaly Detection feat update: AE + IF SOTA unsupervised AD
 
 # April 2025
 - [x] Bayesian changepoint detection for regime switching
 - [x] Clustering fine-tuning of existing methods
-- [ ] Clustering methods feat update: alpha-aware, latent cluster methods
 
 # March 2025
 - [x] Multi-asset statistical arbitrage
