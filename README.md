@@ -1,12 +1,15 @@
 # ArgoVesta
 Modern Portfolio Optimization 
 
-# Upcoming
+# Long-term
+- [ ] Market Forecasting models - GBDT, Transformers
 - [ ] DuckDB migration for faster data loading
-- [ ] Volatility and Options Strategies, auto hedge, etc
-- [ ] Market Forecasting models
+- [ ] Volatility Strategies
+- [ ] Options Scanner
+      
+# Upcoming
 - [ ] Clustering methods feat update: alpha-aware, latent cluster methods
-- [ ] Anomaly Detection feat update: AE + IF SOTA unsupervised AD
+- [ ] Anomaly Detection feat update 
 
 # April 2025
 - [x] Bayesian changepoint detection for regime switching
