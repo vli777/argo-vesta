@@ -9,7 +9,7 @@ Modern Portfolio Optimization
       
 # Upcoming
 - [ ] Clustering methods feat update: alpha-aware, latent cluster methods
-- [ ] Anomaly Detection feat update 
+- [ ] Anomaly Detection feat update: neural network
 
 # April 2025
 - [x] Bayesian changepoint detection for regime switching
