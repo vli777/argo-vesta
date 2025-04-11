@@ -3,7 +3,7 @@ import optuna
 import pandas as pd
 
 from reversion.reversion_utils import (
-    adjust_allocation_with_mean_reversion,
+    adjust_allocation_series_with_mean_reversion,
     propagate_signals_by_similarity,
 )
 from models.optimizer_utils import (
@@ -23,6 +23,7 @@ def tune_reversion_alpha(
     composite_signals: dict,
     group_mapping: dict,
     objective_weights: dict,
+    ticker_params: dict,
     cache_dir: str = "optuna_cache",
     n_trials: int = 50,
     patience: int = 10,
@@ -39,7 +40,7 @@ def tune_reversion_alpha(
 
     historical_vol = returns_df.rolling(window=hv_window).std().mean().mean()
     precomputed_signals = precompute_composite_signals(
-        returns_df, composite_signals, group_mapping, rebalance_period
+        returns_df, composite_signals, group_mapping, rebalance_period, ticker_params
     )
 
     study = optuna.create_study(
@@ -73,15 +74,19 @@ def tune_reversion_alpha(
 
 
 def precompute_composite_signals(
-    returns_df, composite_signals, group_mapping, rebalance_period
+    returns_df, composite_signals, group_mapping, rebalance_period, ticker_params
 ):
-    # Create a dict to hold updated signals for each rebalancing date.
+    # Only propagate fallback signals.
+    fallback_signals = {
+        ticker: signal
+        for ticker, signal in composite_signals.items()
+        if ticker_params.get(ticker, {}).get("mode", "fallback") == "fallback"
+    }
     precomputed_signals = {}
     for i, date in enumerate(returns_df.index):
         if i % rebalance_period == 0:
-            # Only compute for rebalancing dates.
             precomputed_signals[date] = propagate_signals_by_similarity(
-                composite_signals, group_mapping, returns_df
+                fallback_signals, group_mapping, returns_df
             )
     return precomputed_signals
 
@@ -98,6 +103,10 @@ def alpha_objective(
     hv_window: int = 50,
     precomputed_signals: dict = None,  # Pass precomputed signals here
 ) -> float:
+    # Ensure baseline_allocation is a pd.Series.
+    if isinstance(baseline_allocation, dict):
+        baseline_allocation = pd.Series(baseline_allocation, dtype=float)
+
     mean_alpha = min(0.1, max(0.2, 0.5 * historical_vol))
     low_alpha = max(0.01, 0.5 * mean_alpha)
     high_alpha = min(0.5, 2 * mean_alpha)
@@ -124,7 +133,7 @@ def alpha_objective(
                     composite_signals, group_mapping, returns_df
                 )
 
-            final_allocation = adjust_allocation_with_mean_reversion(
+            final_allocation = adjust_allocation_series_with_mean_reversion(
                 baseline_allocation=baseline_allocation,
                 composite_signals=updated_signals,
                 alpha=effective_alpha,

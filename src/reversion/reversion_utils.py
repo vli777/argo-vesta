@@ -1,10 +1,12 @@
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
-
 import hashlib
 from datetime import datetime
+from types import SimpleNamespace
+from statsmodels.tsa.vector_ar.vecm import coint_johansen
 
 from correlation.correlation_utils import compute_correlation_matrix
 from utils.portfolio_utils import normalize_weights
@@ -40,73 +42,95 @@ def format_asset_cluster_map(
     return formatted_clusters
 
 
-def is_cache_stale(last_updated: str, max_age_days: int = 180) -> bool:
+def is_cache_stale(reversion_cache_file: str, max_age_days: int = 30) -> bool:
     """Check if the cache is stale based on the last update timestamp."""
-    if not last_updated:  # Handle empty or None last_updated
-        return True  # Treat missing timestamp as stale
+    # Check if the cache file exists and determine if it is stale based on its last modified time.
+    if os.path.exists(reversion_cache_file):
+        cache_modified_time = datetime.fromtimestamp(
+            os.path.getmtime(reversion_cache_file)
+        )
+        cache_age_days = (datetime.now() - cache_modified_time).days
+        return cache_age_days >= max_age_days
+    else:
+        return True
 
-    try:
-        last_update = datetime.fromisoformat(last_updated)
-    except ValueError:
-        return True  # If it's an invalid timestamp, consider it stale
 
-    return (datetime.now() - last_update).days >= max_age_days
-
-
-def calculate_continuous_composite_signal(signals: dict, ticker_params: dict) -> dict:
+def calculate_continuous_composite_signal(
+    signals: Dict[str, Union[pd.Series, dict]],
+    ticker_params: dict,
+    expected_index: Optional[pd.Index] = None,
+) -> Dict[str, pd.Series]:
     """
-    Compute a composite mean reversion signal for each ticker.
+    Build a composite signal for each ticker by combining daily and, if applicable, weekly signals.
 
-    For each ticker, the composite signal is computed as:
-         composite[ticker] = weight_daily * latest_daily_signal + weight_weekly * latest_weekly_signal
+    For tickers in 'cointegration' mode, the full daily signal series is returned.
+    In 'fallback' mode, the daily and weekly signals are blended based on provided weights.
+    If a signal is missing or empty, a neutral signal (constant 1.0) is used instead.
 
     Args:
-        signals (dict): Mapping from ticker to its signals, e.g.
-            {
-                "AAPL": {"daily": {date: signal, ...} or pd.Series, "weekly": {date: signal, ...} or pd.Series},
-                "MSFT": {"daily": {...}, "weekly": {...}},
-                ...
-            }
-        ticker_params (dict): Global cache keyed by ticker with parameters.
+        signals (dict): Mapping from ticker to signal data (daily and/or weekly); the values may be pd.Series or dict.
+        ticker_params (dict): Mapping from ticker to parameters, including 'mode', 'weight_daily', etc.
+        expected_index (Optional[pd.Index]): An optional pd.Index that represents the expected date range.
+            If provided and a ticker's signal is missing or empty, a neutral series over this index is returned.
 
     Returns:
-        dict: Mapping from ticker to its composite signal.
+        dict: Mapping from ticker to composite signal as a full pd.Series.
     """
     composite = {}
     for ticker, sig_data in signals.items():
         params = ticker_params.get(ticker, {})
-        wd = params.get("weight_daily", 0.7)
-        # Ensure weight_daily is within [0,1]
-        wd = max(0.0, min(wd, 1.0))
-        ww = 1.0 - wd
+        mode = params.get("mode", "fallback")
 
-        # Retrieve the daily signal, which might be a dict or a Pandas Series.
-        daily_signal = sig_data.get("daily", None)
-        daily_val = 0
-        if daily_signal is not None:
-            if isinstance(daily_signal, pd.Series):
-                if not daily_signal.empty:
-                    latest_date = daily_signal.index.max()
-                    daily_val = daily_signal.loc[latest_date]
-            elif isinstance(daily_signal, dict):
-                if daily_signal:  # non-empty dictionary
-                    latest_date = max(daily_signal.keys())
-                    daily_val = daily_signal[latest_date]
+        if mode == "cointegration":
+            daily_signal = sig_data.get("daily", None)
+            # If daily_signal comes in as a dict, convert it.
+            if isinstance(daily_signal, dict):
+                daily_signal = pd.Series(daily_signal)
+            # If it's a non-empty pd.Series, use it; otherwise, use a neutral series.
+            if isinstance(daily_signal, pd.Series) and not daily_signal.empty:
+                composite[ticker] = daily_signal.copy()
+            else:
+                # Create a neutral signal. If expected_index is provided, use it;
+                # otherwise, create a single-value series.
+                if expected_index is not None:
+                    composite[ticker] = pd.Series(1.0, index=expected_index)
+                else:
+                    composite[ticker] = pd.Series([1.0])
+        else:
+            # Fallback mode: blend daily and weekly signals.
+            weight_daily = float(params.get("weight_daily", 0.7))
+            weight_daily = np.clip(weight_daily, 0.0, 1.0)
+            weight_weekly = 1.0 - weight_daily
 
-        # Retrieve the weekly signal.
-        weekly_signal = sig_data.get("weekly", None)
-        weekly_val = 0
-        if weekly_signal is not None:
-            if isinstance(weekly_signal, pd.Series):
-                if not weekly_signal.empty:
-                    latest_date = weekly_signal.index.max()
-                    weekly_val = weekly_signal.loc[latest_date]
-            elif isinstance(weekly_signal, dict):
-                if weekly_signal:
-                    latest_date = max(weekly_signal.keys())
-                    weekly_val = weekly_signal[latest_date]
+            daily_signal = sig_data.get("daily", pd.Series(dtype=float))
+            weekly_signal = sig_data.get("weekly", pd.Series(dtype=float))
 
-        composite[ticker] = wd * daily_val + ww * weekly_val
+            # Convert dict to Series if needed.
+            if isinstance(daily_signal, dict):
+                daily_signal = pd.Series(daily_signal)
+            if isinstance(weekly_signal, dict):
+                weekly_signal = pd.Series(weekly_signal)
+
+            # Ensure they are pd.Series.
+            if not isinstance(daily_signal, pd.Series):
+                daily_signal = pd.Series(dtype=float)
+            if not isinstance(weekly_signal, pd.Series):
+                weekly_signal = pd.Series(dtype=float)
+
+            # Align the two series; fill missing values with a neutral value of 1.0.
+            aligned_daily, aligned_weekly = daily_signal.align(
+                weekly_signal, fill_value=1.0
+            )
+
+            # If the aligned series are empty and expected_index is provided, fill with neutral values.
+            if aligned_daily.empty and expected_index is not None:
+                aligned_daily = pd.Series(1.0, index=expected_index)
+            if aligned_weekly.empty and expected_index is not None:
+                aligned_weekly = pd.Series(1.0, index=expected_index)
+
+            composite[ticker] = (
+                weight_daily * aligned_daily + weight_weekly * aligned_weekly
+            )
 
     return composite
 
@@ -224,60 +248,128 @@ def propagate_signals_by_similarity(
     return updated_signals
 
 
-def adjust_allocation_with_mean_reversion(
-    baseline_allocation: pd.Series,
-    composite_signals: dict,
+def adjust_allocation_series_with_mean_reversion(
+    baseline_allocation: Union[pd.Series, dict],
+    composite_signals: Dict[str, pd.Series],
     alpha: float = 0.2,
     allow_short: bool = False,
-) -> pd.Series:
+    returns_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
     """
-    Adjust the baseline allocation using a continuous mean reversion signal.
-    The adjustment is multiplicative:
-         new_weight = baseline_weight * (1 + alpha * (composite_signal - 1))
-    so that if composite_signal == 1, the allocation remains unchanged.
-    If composite_signal > 1, the allocation increases; if composite_signal < 1, it decreases.
-    Negative weights are clipped if shorts are not allowed, and the result is renormalized.
+    Adjust the baseline allocation over time using the full composite signal series.
+
+    For each date, the allocation for each ticker is adjusted as:
+        new_weight = baseline_weight * (1 + adaptive_alpha * (signal - 1))
+    where adaptive_alpha may be scaled using a global realized volatility estimate from returns_df.
+
+    If the adjustment for a given date results in a zero total weight, then the function falls back to
+    the baseline allocation. If the baseline allocation itself is empty, an empty DataFrame is returned.
 
     Args:
-        baseline_allocation (pd.Series): Series with index = ticker and values = baseline weights.
-        composite_signals (dict): Mapping from ticker to continuous signal (adjustment factor) with a baseline of 1.
-        alpha (float): Sensitivity factor.
-        allow_short (bool): If False, negative adjusted weights are set to zero.
+        baseline_allocation (pd.Series or dict): Baseline weights for each ticker.
+        composite_signals (dict): Mapping from ticker to full composite signal pd.Series.
+        alpha (float): Base sensitivity factor.
+        allow_short (bool): If False, negative allocations are set to zero.
+        returns_df (pd.DataFrame, optional): Historical returns for adaptive alpha scaling.
 
     Returns:
-        pd.Series: Adjusted and normalized allocation.
+        pd.DataFrame: Time series DataFrame where each row contains allocation weights for a given date.
     """
-
-    # Ensure composite_signals is a Pandas Series with tickers as index
-    composite_signals = pd.Series(composite_signals)
+    # Ensure baseline_allocation is a pd.Series.
     if isinstance(baseline_allocation, dict):
-        baseline_allocation = pd.Series(baseline_allocation).astype(float)
+        baseline_allocation = pd.Series(baseline_allocation, dtype=float)
 
-    # Align composite_signals with baseline_allocation
-    composite_signals = composite_signals.reindex(
-        baseline_allocation.index, fill_value=1
-    )
-    # We fill with 1 (not 0) so that if a ticker is missing from signals, it's unchanged.
+    # Check that baseline_allocation is not empty.
+    if baseline_allocation.empty:
+        # Return an empty DataFrame since there's nothing to allocate.
+        return pd.DataFrame()
 
-    adjusted = baseline_allocation.copy()
+    tickers = baseline_allocation.index.tolist()
+    composite_df = pd.DataFrame(composite_signals).reindex(columns=tickers).fillna(1.0)
 
-    # Subtract 1, so that signal=1 => no change
-    adjusted *= 1 + alpha * (composite_signals - 1)
-
-    if not allow_short:
-        # Clip negative values
-        adjusted = adjusted.where(adjusted >= 0, 0)
-        # Then normalize so sum of weights = 1 (if total>0)
-        total = adjusted.sum()
-        if total > 0:
-            adjusted /= total
+    # Safeguard: if composite_df is empty, create a default index.
+    if composite_df.empty:
+        if returns_df is not None and not returns_df.empty:
+            composite_df = pd.DataFrame(
+                {ticker: 1.0 for ticker in tickers}, index=returns_df.index
+            )
         else:
-            adjusted = baseline_allocation
-    else:
-        # If shorting is allowed, we can sum absolute values, or do a different normalization
-        total = adjusted.abs().sum()
-        if total > 0:
-            adjusted /= total
+            composite_df = pd.DataFrame(
+                {ticker: [1.0] for ticker in tickers}, index=[pd.Timestamp.today()]
+            )
 
-    normalized_adjusted = normalize_weights(adjusted)
-    return normalized_adjusted
+    # Determine adaptive alpha based on global realized volatility, if available.
+    if returns_df is not None and not returns_df.empty:
+        realized_vol = (
+            returns_df.rolling(window=30, min_periods=5).std().mean(axis=1).iloc[-1]
+        )
+        realized_vol = max(realized_vol, 1e-6)
+        adaptive_alpha = alpha / (1 + realized_vol)
+    else:
+        adaptive_alpha = alpha
+
+    allocation_over_time = []
+    for date, signal_row in composite_df.iterrows():
+        raw_adjustment = baseline_allocation * (1 + adaptive_alpha * (signal_row - 1))
+        if not allow_short:
+            raw_adjustment = raw_adjustment.clip(lower=0)
+
+        # If the computed adjustment sums to zero, fall back to the baseline allocation.
+        if np.isclose(raw_adjustment.sum(), 0.0):
+            # If baseline_allocation is also zero-sum, return equal weights.
+            if (
+                np.isclose(baseline_allocation.sum(), 0.0)
+                or len(baseline_allocation) == 0
+            ):
+                # This branch should not occur because of the earlier check, but we safeguard.
+                fallback = pd.Series(dtype=float)
+            else:
+                fallback = normalize_weights(baseline_allocation)
+            normalized = fallback
+        else:
+            normalized = normalize_weights(raw_adjustment)
+        allocation_over_time.append(normalized)
+
+    adjusted_allocations = pd.DataFrame(allocation_over_time, index=composite_df.index)
+    return adjusted_allocations
+
+
+def johansen_test(prices_df, det_order=0, k_ar_diff=1):
+    """
+    Runs the Johansen cointegration test and returns a simple namespace with:
+      - cointegration_found (bool): True if any test statistic exceeds its critical value at 5%
+      - eigenvector: The cointegrating vector corresponding to the first (largest) test statistic.
+    """
+    result = coint_johansen(prices_df, det_order, k_ar_diff)
+    # Use the trace statistic and its critical values at the 5% level.
+    cointegration_found = any(result.lr1 > result.cvt[:, 1])
+    eigenvector = result.evec[:, 0] if cointegration_found else None
+    return SimpleNamespace(
+        cointegration_found=cointegration_found, eigenvector=eigenvector
+    )
+
+
+def compute_spread(prices_df: pd.DataFrame, eigenvector: np.ndarray) -> pd.Series:
+    """
+    Compute the cointegrated spread from asset prices using the cointegrating vector.
+
+    The spread is calculated as a weighted sum of the asset prices, where the weights
+    are derived from the cointegrating eigenvector. In cases where the sum of the eigenvector
+    is close to zero, the eigenvector is normalized by its Euclidean norm instead.
+
+    Args:
+        prices_df (pd.DataFrame): DataFrame with dates as index and asset prices as columns.
+        eigenvector (np.ndarray): Cointegrating vector from the Johansen test.
+
+    Returns:
+        pd.Series: Time series representing the computed spread.
+    """
+    # Normalize the eigenvector. If the sum is near zero, use the Euclidean norm.
+    if np.isclose(eigenvector.sum(), 0):
+        weights = eigenvector / np.linalg.norm(eigenvector)
+    else:
+        weights = eigenvector / eigenvector.sum()
+
+    # Compute the spread as the weighted sum of prices.
+    spread = prices_df.dot(weights)
+    return spread
