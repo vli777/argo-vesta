@@ -92,7 +92,7 @@ def calculate_continuous_composite_signal(signals: dict, ticker_params: dict) ->
                     weekly_val = weekly_signal[max(weekly_signal.keys())]
 
             composite[ticker] = wd * daily_val + ww * weekly_val
-    
+
     return composite
 
 
@@ -214,55 +214,46 @@ def adjust_allocation_with_mean_reversion(
     composite_signals: dict,
     alpha: float = 0.2,
     allow_short: bool = False,
+    returns_df: Optional[pd.DataFrame] = None,
 ) -> pd.Series:
     """
     Adjust the baseline allocation using a continuous mean reversion signal.
     The adjustment is multiplicative:
-         new_weight = baseline_weight * (1 + alpha * (composite_signal - 1))
+         new_weight = baseline_weight * (1 + adaptive_alpha * (composite_signal - 1))
     so that if composite_signal == 1, the allocation remains unchanged.
-    If composite_signal > 1, the allocation increases; if composite_signal < 1, it decreases.
-    Negative weights are clipped if shorts are not allowed, and the result is renormalized.
+    Adaptive alpha scales based on volatility if returns_df is provided.
 
     Args:
         baseline_allocation (pd.Series): Series with index = ticker and values = baseline weights.
         composite_signals (dict): Mapping from ticker to continuous signal (adjustment factor) with a baseline of 1.
-        alpha (float): Sensitivity factor.
+        alpha (float): Base sensitivity factor.
         allow_short (bool): If False, negative adjusted weights are set to zero.
+        returns_df (pd.DataFrame, optional): Historical returns used to adaptively adjust alpha by realized volatility.
 
     Returns:
         pd.Series: Adjusted and normalized allocation.
     """
-
-    # Ensure composite_signals is a Pandas Series with tickers as index
     composite_signals = pd.Series(composite_signals)
     if isinstance(baseline_allocation, dict):
         baseline_allocation = pd.Series(baseline_allocation).astype(float)
 
-    # Align composite_signals with baseline_allocation
     composite_signals = composite_signals.reindex(
         baseline_allocation.index, fill_value=1
     )
-    # We fill with 1 (not 0) so that if a ticker is missing from signals, it's unchanged.
 
-    adjusted = baseline_allocation.copy()
+    if returns_df is not None:
+        realized_vol = (
+            returns_df.rolling(window=30, min_periods=5).std().mean(axis=1).iloc[-1]
+        )
+        realized_vol = max(realized_vol, 1e-6)
+        adaptive_alpha = alpha / (1 + realized_vol)
+    else:
+        adaptive_alpha = alpha
 
-    # Subtract 1, so that signal=1 => no change
-    adjusted *= 1 + alpha * (composite_signals - 1)
+    adjusted = baseline_allocation * (1 + adaptive_alpha * (composite_signals - 1))
 
     if not allow_short:
-        # Clip negative values
-        adjusted = adjusted.where(adjusted >= 0, 0)
-        # Then normalize so sum of weights = 1 (if total>0)
-        total = adjusted.sum()
-        if total > 0:
-            adjusted /= total
-        else:
-            adjusted = baseline_allocation
-    else:
-        # If shorting is allowed, we can sum absolute values, or do a different normalization
-        total = adjusted.abs().sum()
-        if total > 0:
-            adjusted /= total
+        adjusted = adjusted.clip(lower=0)
 
     normalized_adjusted = normalize_weights(adjusted)
     return normalized_adjusted
