@@ -2,7 +2,7 @@ from typing import Dict, Tuple
 import numpy as np
 import optuna
 import pandas as pd
-
+from sklearn.ensemble import IsolationForest
 from reversion.reversion_utils import compute_spread, johansen_test
 from models.optimizer_utils import (
     strategy_composite_score,
@@ -16,16 +16,28 @@ def cointegration_mean_reversion_objective(
     prices_df: pd.DataFrame,
     objective_weights: dict,
     test_window_range: range = range(10, 31, 5),
+    contamination: float = 0.05,
+    penalize_outlier: bool = True,
 ) -> float:
     """
     Objective function for tuning cointegration-based mean reversion parameters.
     The procedure:
       1. Suggest a rolling window and z-score thresholds.
       2. Computes the cointegrated spread from prices.
-      3. Calculates robust z-scores on the spread.
-      4. Generates signals and computes a composite performance score.
+      3. Optionally determines if the spread is unusual (temporary event etc.)
+      4. Calculates robust z-scores on the spread.
+      5. Generates signals and computes a composite performance score.
+    
+    Args:
+        trial (optuna.Trial): The trial object.
+        prices_df (pd.DataFrame): Log-price DataFrame.
+        objective_weights (dict): Weighting for performance metrics.
+        test_window_range (range): Rolling z-score window range.
+        contamination (float): Isolation Forest outlier fraction.
+        penalize_outlier (bool): Whether to penalize if current spread is an outlier.
+
     Returns:
-        float: Composite score for this trial.
+        float: Composite performance score or large penalty if invalid.
     """
     # Suggest parameters.
     window = trial.suggest_int(
@@ -49,6 +61,14 @@ def cointegration_mean_reversion_objective(
     eigenvector = coint_result.eigenvector
     spread = compute_spread(prices_df, eigenvector)  # Spread as a Series
     spread_df = pd.DataFrame(spread, columns=["spread"])
+    
+    # Optional outlier detection
+    if penalize_outlier and len(spread_df) > 20:
+        iso = IsolationForest(contamination=contamination, random_state=42)
+        iso.fit(spread_df.values)
+        latest_flag = iso.predict(spread_df.values[-1].reshape(1, -1))[0]
+        if latest_flag == -1:
+            return -1e5  # Penalize trial with outlier spread
 
     # Compute robust z-scores on the spread.
     robust_z = calculate_robust_zscores(spread_df, window)  # Expects a DataFrame
