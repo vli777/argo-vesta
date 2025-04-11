@@ -142,6 +142,7 @@ def apply_mean_reversion(
 
     # Now cluster_signals is a dict mapping each ticker to its computed cluster-level signal.
     logger.info(f"Computed cluster-level signals for {len(cluster_signals)} tickers.")
+    logger.info(f"Cluster group signals: {cluster_signals}")
 
     # 9. Collapse daily/weekly signals into one scalar per ticker
     composite_signals = calculate_continuous_composite_signal(
