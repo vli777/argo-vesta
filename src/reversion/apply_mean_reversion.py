@@ -6,7 +6,7 @@ from config import Config
 
 from reversion.cluster_mean_reversion import cluster_mean_reversion
 from reversion.reversion_utils import (
-    adjust_allocation_with_mean_reversion,
+    adjust_allocation_series_with_mean_reversion,
     calculate_continuous_composite_signal,
     group_ticker_params_by_cluster,
     is_cache_stale,
@@ -15,7 +15,7 @@ from reversion.reversion_utils import (
 from reversion.optimize_reversion_strength import tune_reversion_alpha
 from models.optimizer_utils import get_objective_weights
 from reversion.reversion_signals import (
-    compute_group_cluster_signals,
+    compute_cluster_stateful_signal,
     compute_individual_stateful_signals_for_group,
 )
 from reversion.reversion_plots import plot_reversion_signals
@@ -110,7 +110,7 @@ def apply_mean_reversion(
         # Compute signals in a consistent dictionary format with "daily" and "weekly" keys.
         if tuned_params.get("mode") == "cointegration":
             # Cointegration produces only a daily signal.
-            daily_signal = compute_group_cluster_signals(
+            daily_signal = compute_cluster_stateful_signal(
                 group_returns=group_returns,
                 tuned_params=tuned_params,
             )
@@ -148,7 +148,7 @@ def apply_mean_reversion(
         signals=cluster_signals,
         ticker_params=ticker_params,
     )
-    logger.info(f"composite_signals: {composite_signals}")
+    logger.info(f"Composite_signals: {composite_signals}")
 
     # Optionally plot signals
     if config.plot_reversion:
@@ -180,7 +180,7 @@ def apply_mean_reversion(
     updated_composite_signals = composite_signals.copy()
     updated_composite_signals.update(propagated_signals)
     logger.info(
-        f"updated_composite_signals after propagation: {updated_composite_signals}"
+        f"Updated_composite_signals after propagation: {updated_composite_signals}"
     )
 
     # 11. Set signal strength alpha based on mode.
@@ -233,7 +233,7 @@ def apply_mean_reversion(
     )
 
     # For cointegrated tickers, use alpha=1.0 (full signal application).
-    adjusted_cointegration = adjust_allocation_with_mean_reversion(
+    adjusted_cointegration = adjust_allocation_series_with_mean_reversion(
         baseline_allocation=baseline_cointegration,
         composite_signals=composite_cointegration,
         alpha=1.0,
@@ -244,7 +244,7 @@ def apply_mean_reversion(
     fallback_alpha = (
         adaptive_alpha_fallback if adaptive_alpha_fallback is not None else 1.0
     )
-    adjusted_fallback = adjust_allocation_with_mean_reversion(
+    adjusted_fallback = adjust_allocation_series_with_mean_reversion(
         baseline_allocation=baseline_fallback,
         composite_signals=composite_fallback,
         alpha=fallback_alpha,

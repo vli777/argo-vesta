@@ -3,7 +3,7 @@ import optuna
 import pandas as pd
 
 from reversion.reversion_utils import (
-    adjust_allocation_with_mean_reversion,
+    adjust_allocation_series_with_mean_reversion,
     propagate_signals_by_similarity,
 )
 from models.optimizer_utils import (
@@ -103,6 +103,10 @@ def alpha_objective(
     hv_window: int = 50,
     precomputed_signals: dict = None,  # Pass precomputed signals here
 ) -> float:
+    # Ensure baseline_allocation is a pd.Series.
+    if isinstance(baseline_allocation, dict):
+        baseline_allocation = pd.Series(baseline_allocation, dtype=float)
+
     mean_alpha = min(0.1, max(0.2, 0.5 * historical_vol))
     low_alpha = max(0.01, 0.5 * mean_alpha)
     high_alpha = min(0.5, 2 * mean_alpha)
@@ -129,7 +133,7 @@ def alpha_objective(
                     composite_signals, group_mapping, returns_df
                 )
 
-            final_allocation = adjust_allocation_with_mean_reversion(
+            final_allocation = adjust_allocation_series_with_mean_reversion(
                 baseline_allocation=baseline_allocation,
                 composite_signals=updated_signals,
                 alpha=effective_alpha,

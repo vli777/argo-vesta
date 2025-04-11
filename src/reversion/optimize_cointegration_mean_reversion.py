@@ -27,7 +27,7 @@ def cointegration_mean_reversion_objective(
       3. Optionally determines if the spread is unusual (temporary event etc.)
       4. Calculates robust z-scores on the spread.
       5. Generates signals and computes a composite performance score.
-    
+
     Args:
         trial (optuna.Trial): The trial object.
         prices_df (pd.DataFrame): Log-price DataFrame.
@@ -61,7 +61,7 @@ def cointegration_mean_reversion_objective(
     eigenvector = coint_result.eigenvector
     spread = compute_spread(prices_df, eigenvector)  # Spread as a Series
     spread_df = pd.DataFrame(spread, columns=["spread"])
-    
+
     # Optional outlier detection
     if penalize_outlier and len(spread_df) > 20:
         iso = IsolationForest(contamination=contamination, random_state=42)
@@ -78,10 +78,14 @@ def cointegration_mean_reversion_objective(
     #   - Short signal when spread is significantly high.
     signals = np.where(
         robust_z["spread"].values < -z_threshold_negative,
-        (np.abs(robust_z["spread"].values) - z_threshold_negative) / z_threshold_negative,
+        (np.abs(robust_z["spread"].values) - z_threshold_negative)
+        / z_threshold_negative,
         np.where(
             robust_z["spread"].values > z_threshold_positive,
-            -((robust_z["spread"].values - z_threshold_positive) / z_threshold_positive),
+            -(
+                (robust_z["spread"].values - z_threshold_positive)
+                / z_threshold_positive
+            ),
             0,
         ),
     )
