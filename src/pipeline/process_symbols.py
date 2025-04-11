@@ -33,8 +33,9 @@ def process_symbols(symbols, start_date, end_date, data_path, download) -> pd.Da
         symbol_data = symbol_data.loc[~symbol_data.index.duplicated(keep="first")]
         symbol_data = format_to_df_format(symbol_data, symbol)
         earliest_date = symbol_data.index.min()
+        latest_date = symbol_data.index.max()
         logger.info(
-            f"{symbol} starts at {earliest_date}. Using full available history."
+            f"{symbol} starts at {earliest_date} and ends at {latest_date}. Using full available history."
         )
 
         # Convert columns to a multi-level index with (ticker, OHLC) structure.
