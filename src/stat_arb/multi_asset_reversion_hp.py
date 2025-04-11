@@ -27,7 +27,7 @@ from pyomo.opt import SolverStatus, TerminationCondition
 from tqdm import tqdm
 
 from utils import logger
-from stat_arb.graph_autoencoder import construct_graph, train_gae
+from stat_arb.coint_vgae import construct_graph, train_gae
 from utils.performance_metrics import sharpe_ratio
 
 

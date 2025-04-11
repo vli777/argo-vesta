@@ -5,14 +5,14 @@ import pandas as pd
 from reversion.apply_mean_reversion import apply_mean_reversion
 from result_output import build_final_result_dict, compute_performance_results
 from config import Config
-from stat_arb.plot_ou_signals import plot_all_ticker_signals
+from stat_arb.plot_hp_signals import plot_all_ticker_signals
 from stat_arb.apply_adaptive_weighting import apply_adaptive_weighting
 from stat_arb.multi_asset_plots import (
     plot_multi_ou_signals,
 )
-from stat_arb.multi_asset_reversion import MultiAssetReversion
+from stat_arb.multi_asset_reversion_hp import MultiAssetReversion
 from stat_arb.portfolio_allocator import PortfolioAllocator
-from stat_arb.single_asset_reversion import SingleAssetReversion
+from stat_arb.single_asset_reversion_hp import SingleAssetReversion
 from utils.portfolio_utils import normalize_weights
 from utils.logger import logger
 
